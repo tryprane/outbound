@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { loadEmailOpenStates } from '@/lib/emailOpenTracking'
 
+export const dynamic = 'force-dynamic'
+
 type Channel = 'email' | 'whatsapp'
 
 function parseDate(raw: string | null): Date | undefined {

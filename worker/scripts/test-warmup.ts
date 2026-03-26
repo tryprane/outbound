@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
+import type { ConnectionOptions } from 'bullmq';
 import IORedis from 'ioredis';
 import * as dotenv from 'dotenv';
 import path from 'path';
@@ -14,7 +15,7 @@ const redisConnection = new IORedis(process.env.REDIS_URL || 'redis://localhost:
 });
 
 const warmupQueue = new Queue('warmup-queue', {
-  connection: redisConnection,
+  connection: redisConnection as unknown as ConnectionOptions,
 });
 
 async function main() {

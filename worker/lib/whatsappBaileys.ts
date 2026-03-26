@@ -5,10 +5,11 @@ import { Boom } from '@hapi/boom'
 import { prisma } from '~/lib/prisma'
 
 type SocketMap = Map<string, ReturnType<typeof makeWASocket>>
+type WAVersion = [number, number, number]
 
 const sockets: SocketMap = new Map()
 const sessionRoot = path.resolve(process.cwd(), '.baileys-sessions')
-let latestVersionCache: number[] | null = null
+let latestVersionCache: WAVersion | null = null
 
 if (!fs.existsSync(sessionRoot)) {
   fs.mkdirSync(sessionRoot, { recursive: true })
@@ -26,7 +27,7 @@ async function getSocketVersion() {
   try {
     const { version, isLatest } = await fetchLatestBaileysVersion()
     console.log(`[Baileys] using WA version ${version.join('.')} (isLatest=${isLatest})`)
-    latestVersionCache = version
+    latestVersionCache = version as WAVersion
     return version
   } catch (err) {
     console.warn('[Baileys] failed to fetch latest version, falling back to bundled version', err)

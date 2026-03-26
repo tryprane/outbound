@@ -24,7 +24,7 @@ type QueueState = {
   queueName: QueueName
   priority: number
   idleCloseMs: number
-  getCounts: () => Promise<{ waiting: number; active: number; delayed: number }>
+  getCounts: () => Promise<Record<string, number>>
   start: () => Worker
 }
 

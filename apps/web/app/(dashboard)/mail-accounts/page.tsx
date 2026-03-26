@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { Suspense, useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { ZohoAccountForm } from '@/components/mail-accounts/ZohoAccountForm'
 import { GmailOAuthButton } from '@/components/mail-accounts/GmailOAuthButton'
@@ -83,7 +83,7 @@ interface WarmupLog {
 
 type ActiveTab = 'accounts' | 'warmup' | 'add-zoho' | 'add-gmail' | 'add-whatsapp'
 
-export default function MailAccountsPage() {
+function MailAccountsPageContent() {
   const searchParams = useSearchParams()
   const [accounts, setAccounts] = useState<MailAccount[]>([])
   const [whatsappAccounts, setWhatsappAccounts] = useState<WhatsAppAccount[]>([])
@@ -938,5 +938,13 @@ export default function MailAccountsPage() {
         </div>
       ) : null}
     </div>
+  )
+}
+
+export default function MailAccountsPage() {
+  return (
+    <Suspense fallback={<div className="animate-fade-in">Loading...</div>}>
+      <MailAccountsPageContent />
+    </Suspense>
   )
 }

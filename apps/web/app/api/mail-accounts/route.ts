@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { whatsappSessionQueue } from '@/lib/whatsappSessionQueue'
-import { warmupQueue } from '@/lib/warmupQueue'
+import { getWhatsAppSessionQueue } from '@/lib/whatsappSessionQueue'
+import { getWarmupQueue } from '@/lib/warmupQueue'
 
 const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
 type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
         },
         select: { id: true, displayName: true, phoneNumber: true, sessionKey: true },
       })
-      await whatsappSessionQueue.add(
+      await getWhatsAppSessionQueue().add(
         'connect-whatsapp-session' as never,
         { whatsappAccountId: account.id, mode: 'connect' } as never,
         { jobId: `wa-connect-${account.id}-${Date.now()}` }
@@ -265,7 +265,7 @@ export async function PATCH(request: NextRequest) {
         },
       })
       if (body.reconnect) {
-        await whatsappSessionQueue.add(
+        await getWhatsAppSessionQueue().add(
           'reconnect-whatsapp-session' as never,
           { whatsappAccountId: updated.id, mode: 'reconnect' } as never,
           { jobId: `wa-reconnect-${updated.id}-${Date.now()}` }
@@ -391,7 +391,7 @@ export async function PATCH(request: NextRequest) {
         )
       }
 
-      await warmupQueue.add(
+      await getWarmupQueue().add(
         'process-warmup' as never,
         { mailAccountId: updated.id } as never,
         { jobId: `warmup-manual-${updated.id}-${Date.now()}` }

@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { ColumnMapping } from '@/lib/csv-parser/column-detector'
 
 interface UploadResult {
   id: string
   originalName: string
   rowCount: number
   headers: string[]
-  detectedMapping: Record<string, string>
+  detectedMapping: ColumnMapping
   preview: Record<string, string>[]
 }
 

@@ -1,4 +1,4 @@
-import { redis } from '@/lib/redis'
+import { getRedis } from '@/lib/redis'
 
 export interface EmailOpenState {
   openedAt: string
@@ -11,6 +11,7 @@ function openKey(mailLogId: string) {
 }
 
 export async function recordEmailOpen(mailLogId: string): Promise<EmailOpenState> {
+  const redis = getRedis()
   const key = openKey(mailLogId)
   const now = new Date().toISOString()
   const existing = await redis.hgetall(key)
@@ -31,6 +32,7 @@ export async function recordEmailOpen(mailLogId: string): Promise<EmailOpenState
 }
 
 export async function loadEmailOpenStates(mailLogIds: string[]): Promise<Map<string, EmailOpenState>> {
+  const redis = getRedis()
   const entries = await Promise.all(
     mailLogIds.map(async (mailLogId) => {
       const state = await redis.hgetall(openKey(mailLogId))
