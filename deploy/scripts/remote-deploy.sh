@@ -29,6 +29,12 @@ require_var GOOGLE_CLIENT_ID
 require_var GOOGLE_CLIENT_SECRET
 require_var GEMINI_API_KEY
 
+INGRESS_HOST="$(printf '%s' "$PUBLIC_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
+if [[ -z "$INGRESS_HOST" ]]; then
+  echo "Could not derive ingress host from PUBLIC_URL=$PUBLIC_URL" >&2
+  exit 1
+fi
+
 cp "$TEMPLATE_DIR/namespace.yaml" "$RENDER_DIR/namespace.yaml"
 cp "$TEMPLATE_DIR/infra.yaml" "$RENDER_DIR/infra.yaml"
 cp "$TEMPLATE_DIR/app.yaml" "$RENDER_DIR/app.yaml"
@@ -37,6 +43,7 @@ cp "$TEMPLATE_DIR/job.yaml" "$RENDER_DIR/job.yaml"
 sed -i "s#__WEB_IMAGE__#${WEB_IMAGE}#g" "$RENDER_DIR/app.yaml" "$RENDER_DIR/job.yaml"
 sed -i "s#__WORKER_IMAGE__#${WORKER_IMAGE}#g" "$RENDER_DIR/app.yaml" "$RENDER_DIR/job.yaml"
 sed -i "s#__SCRAPER_IMAGE__#${SCRAPER_IMAGE}#g" "$RENDER_DIR/app.yaml"
+sed -i "s#__INGRESS_HOST__#${INGRESS_HOST}#g" "$RENDER_DIR/app.yaml"
 
 NAMESPACE="outbound"
 
