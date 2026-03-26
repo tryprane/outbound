@@ -1,9 +1,9 @@
 FROM python:3.12-slim
 
-# Build deps required for scrapling / playwright / camoufox
+# Build deps required for Patchright / Playwright runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libffi-dev libssl-dev curl wget gnupg ca-certificates \
-    # Playwright / Camoufox runtime libs
+    # Playwright runtime libs
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
     libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
@@ -13,12 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python dependencies (includes scrapling[fetchers])
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Download Scrapling browser binaries (Camoufox + Playwright Chromium)
-RUN python -c "from scrapling.cli import install; install([], standalone_mode=False)"
 
 # Copy source
 COPY . .
