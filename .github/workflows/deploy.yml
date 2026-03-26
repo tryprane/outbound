@@ -74,40 +74,37 @@ jobs:
 
       - name: Deploy on VPS over SSH
         uses: appleboy/ssh-action@v1.1.0
-        env:
-          WEB_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-web:${{ github.sha }}
-          WORKER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-worker:${{ github.sha }}
-          SCRAPER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-scraper:${{ github.sha }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          PUBLIC_URL: ${{ vars.PUBLIC_URL }}
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GHCR_EMAIL: ${{ secrets.GHCR_EMAIL }}
-          WORKER_GLOBAL_ACTIVE_LIMIT: ${{ secrets.WORKER_GLOBAL_ACTIVE_LIMIT }}
-          WORKER_SWEEP_INTERVAL_MS: ${{ secrets.WORKER_SWEEP_INTERVAL_MS }}
-          WORKER_IDLE_CLOSE_MS: ${{ secrets.WORKER_IDLE_CLOSE_MS }}
-          CAMPAIGN_WORKER_CONCURRENCY: ${{ secrets.CAMPAIGN_WORKER_CONCURRENCY }}
-          MAIL_WORKER_CONCURRENCY: ${{ secrets.MAIL_WORKER_CONCURRENCY }}
-          SCRAPE_WORKER_CONCURRENCY: ${{ secrets.SCRAPE_WORKER_CONCURRENCY }}
-          WHATSAPP_WORKER_CONCURRENCY: ${{ secrets.WHATSAPP_WORKER_CONCURRENCY }}
-          WARMUP_WORKER_CONCURRENCY: ${{ secrets.WARMUP_WORKER_CONCURRENCY }}
-          WHATSAPP_SESSION_WORKER_CONCURRENCY: ${{ secrets.WHATSAPP_SESSION_WORKER_CONCURRENCY }}
-          WHATSAPP_SESSION_KEEPALIVE: ${{ secrets.WHATSAPP_SESSION_KEEPALIVE }}
         with:
           host: ${{ vars.VPS_HOST }}
           username: ${{ vars.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           script_stop: true
-          envs: WEB_IMAGE,WORKER_IMAGE,SCRAPER_IMAGE,POSTGRES_PASSWORD,PUBLIC_URL,NEXTAUTH_SECRET,ENCRYPTION_KEY,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,GEMINI_API_KEY,GHCR_USERNAME,GHCR_TOKEN,GHCR_EMAIL,WORKER_GLOBAL_ACTIVE_LIMIT,WORKER_SWEEP_INTERVAL_MS,WORKER_IDLE_CLOSE_MS,CAMPAIGN_WORKER_CONCURRENCY,MAIL_WORKER_CONCURRENCY,SCRAPE_WORKER_CONCURRENCY,WHATSAPP_WORKER_CONCURRENCY,WARMUP_WORKER_CONCURRENCY,WHATSAPP_SESSION_WORKER_CONCURRENCY,WHATSAPP_SESSION_KEEPALIVE
-          envs_format: export
           script: |
             set -euo pipefail
+            export WEB_IMAGE='${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-web:${{ github.sha }}'
+            export WORKER_IMAGE='${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-worker:${{ github.sha }}'
+            export SCRAPER_IMAGE='${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-scraper:${{ github.sha }}'
+            export POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
+            export PUBLIC_URL='${{ vars.PUBLIC_URL }}'
+            export NEXTAUTH_SECRET='${{ secrets.NEXTAUTH_SECRET }}'
+            export ENCRYPTION_KEY='${{ secrets.ENCRYPTION_KEY }}'
+            export GOOGLE_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'
+            export GOOGLE_CLIENT_SECRET='${{ secrets.GOOGLE_CLIENT_SECRET }}'
+            export GEMINI_API_KEY='${{ secrets.GEMINI_API_KEY }}'
+            export GHCR_USERNAME='${{ vars.GHCR_USERNAME }}'
+            export GHCR_TOKEN='${{ secrets.GHCR_TOKEN }}'
+            export GHCR_EMAIL='${{ secrets.GHCR_EMAIL }}'
+            export WORKER_GLOBAL_ACTIVE_LIMIT='${{ secrets.WORKER_GLOBAL_ACTIVE_LIMIT }}'
+            export WORKER_SWEEP_INTERVAL_MS='${{ secrets.WORKER_SWEEP_INTERVAL_MS }}'
+            export WORKER_IDLE_CLOSE_MS='${{ secrets.WORKER_IDLE_CLOSE_MS }}'
+            export CAMPAIGN_WORKER_CONCURRENCY='${{ secrets.CAMPAIGN_WORKER_CONCURRENCY }}'
+            export MAIL_WORKER_CONCURRENCY='${{ secrets.MAIL_WORKER_CONCURRENCY }}'
+            export SCRAPE_WORKER_CONCURRENCY='${{ secrets.SCRAPE_WORKER_CONCURRENCY }}'
+            export WHATSAPP_WORKER_CONCURRENCY='${{ secrets.WHATSAPP_WORKER_CONCURRENCY }}'
+            export WARMUP_WORKER_CONCURRENCY='${{ secrets.WARMUP_WORKER_CONCURRENCY }}'
+            export WHATSAPP_SESSION_WORKER_CONCURRENCY='${{ secrets.WHATSAPP_SESSION_WORKER_CONCURRENCY }}'
+            export WHATSAPP_SESSION_KEEPALIVE='${{ secrets.WHATSAPP_SESSION_KEEPALIVE }}'
             if [[ ! -d /opt/outbound/.git ]]; then
               echo "Repo checkout missing at /opt/outbound. Clone it first." >&2
               exit 1
