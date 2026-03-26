@@ -43,3 +43,4 @@ out/
 dump.rdb
 pgpass.txt
 .baileys-sessions/
+*.pem
