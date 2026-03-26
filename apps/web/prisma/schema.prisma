@@ -1,0 +1,308 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum WarmupStatus {
+  COLD
+  WARMING
+  WARMED
+  PAUSED
+}
+
+enum CampaignChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum WhatsAppConnectionStatus {
+  DISCONNECTED
+  QR_PENDING
+  CONNECTED
+  ERROR
+}
+
+model MailAccount {
+  id           String   @id @default(cuid())
+  type         String   // "zoho" | "gmail"
+  email        String   @unique
+  displayName  String
+  // Zoho SMTP fields
+  smtpHost     String?
+  smtpPort     Int?
+  smtpPassword String?  // AES-256 encrypted
+  // Gmail OAuth fields
+  accessToken  String?  // AES-256 encrypted
+  refreshToken String?
+  tokenExpiry  DateTime?
+  // Limits
+  dailyLimit   Int      @default(40)
+  sentToday    Int      @default(0)
+  lastResetAt  DateTime @default(now())
+  lastMailSentAt DateTime?
+  isActive     Boolean  @default(true)
+  warmupStatus WarmupStatus @default(COLD)
+  warmupStage  Int      @default(0)
+  warmupStartedAt DateTime?
+  warmupCompletedAt DateTime?
+  warmupPausedAt DateTime?
+  recommendedDailyLimit Int @default(5)
+  warmupAutoEnabled Boolean @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sentMails SentMail[]
+  campaigns CampaignMailAccount[]
+  warmupRecipients WarmupRecipient[] @relation("RecipientMailbox")
+  warmupSends WarmupMailLog[] @relation("SenderMailbox")
+  warmupReceived WarmupMailLog[] @relation("RecipientMailboxSends")
+}
+
+model CsvFile {
+  id           String    @id @default(cuid())
+  originalName String
+  storagePath  String
+  rowCount     Int
+  columnMap    Json      // { name: "col_A", website: "col_C", email: "col_F", ... }
+  uploadedAt   DateTime  @default(now())
+
+  rows      CsvRow[]
+  campaigns Campaign[]
+}
+
+model CsvRow {
+  id            String  @id @default(cuid())
+  csvFileId     String
+  rowIndex      Int
+  rawData       Json    // original row data
+  name          String?
+  website       String?
+  email         String?
+  whatsapp      String?
+  scrapedEmail  String?
+  scrapedPhone  String?
+  scrapeStatus  String  @default("pending") // pending|running|done|failed
+  createdAt     DateTime @default(now())
+
+  csvFile   CsvFile    @relation(fields: [csvFileId], references: [id], onDelete: Cascade)
+  sentMails SentMail[]
+  sentWhatsAppMessages SentWhatsAppMessage[]
+
+  @@index([csvFileId])
+  @@index([scrapeStatus])
+}
+
+model Campaign {
+  id                  String   @id @default(cuid())
+  name                String
+  type                String   // "indian" | "international"
+  channel             CampaignChannel @default(EMAIL)
+  status              String   @default("draft") // draft|active|paused|completed
+  csvFileId           String
+  prompt              String   @db.Text
+  whatsappColumn      String?
+  scrapeEmail         Boolean  @default(false)
+  scrapeWhatsapp      Boolean  @default(false)
+  dailyMailsPerAccount Int     @default(40)
+  currentRowIndex     Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  csvFile      CsvFile               @relation(fields: [csvFileId], references: [id])
+  mailAccounts CampaignMailAccount[]
+  whatsappAccounts CampaignWhatsAppAccount[]
+  sentMails    SentMail[]
+  sentWhatsAppMessages SentWhatsAppMessage[]
+
+  @@index([status])
+}
+
+model CampaignMailAccount {
+  campaignId    String
+  mailAccountId String
+  sentCount     Int    @default(0)
+  lastSentAt    DateTime?
+
+  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  mailAccount MailAccount @relation(fields: [mailAccountId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, mailAccountId])
+}
+
+model WhatsAppAccount {
+  id                 String   @id @default(cuid())
+  displayName        String
+  phoneNumber        String?
+  isActive           Boolean  @default(true)
+  connectionStatus   WhatsAppConnectionStatus @default(DISCONNECTED)
+  sessionKey         String   @unique
+  lastQr             String?  @db.Text
+  lastConnectedAt    DateTime?
+  lastError          String?
+  dailyLimit         Int      @default(40)
+  sentToday          Int      @default(0)
+  lastResetAt        DateTime @default(now())
+  lastMessageSentAt  DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  campaigns          CampaignWhatsAppAccount[]
+  sentMessages       SentWhatsAppMessage[]
+
+  @@index([connectionStatus])
+  @@index([isActive])
+}
+
+model CampaignWhatsAppAccount {
+  campaignId       String
+  whatsappAccountId String
+  sentCount        Int      @default(0)
+  lastSentAt       DateTime?
+
+  campaign         Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  whatsappAccount  WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, whatsappAccountId])
+}
+
+model SentWhatsAppMessage {
+  id               String   @id @default(cuid())
+  campaignId       String
+  csvRowId         String
+  whatsappAccountId String
+  toPhone          String
+  message          String   @db.Text
+  status           String   // "sent" | "failed"
+  sentAt           DateTime @default(now())
+  errorMessage     String?
+
+  campaign         Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  csvRow           CsvRow          @relation(fields: [csvRowId], references: [id], onDelete: Cascade)
+  whatsappAccount  WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([whatsappAccountId])
+  @@index([sentAt])
+}
+
+model SentMail {
+  id            String   @id @default(cuid())
+  campaignId    String
+  csvRowId      String
+  mailAccountId String
+  toEmail       String
+  subject       String
+  body          String   @db.Text
+  status        String   // "sent" | "failed" | "bounced"
+  sentAt        DateTime @default(now())
+  errorMessage  String?
+
+  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  csvRow      CsvRow      @relation(fields: [csvRowId], references: [id], onDelete: Cascade)
+  mailAccount MailAccount @relation(fields: [mailAccountId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([mailAccountId])
+  @@index([sentAt])
+}
+
+model UnsubscribeList {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+model WarmupRecipient {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  isActive      Boolean  @default(true)
+  isSystem      Boolean  @default(false)
+  mailAccountId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  mailAccount MailAccount? @relation("RecipientMailbox", fields: [mailAccountId], references: [id], onDelete: SetNull)
+
+  @@index([isActive])
+  @@index([isSystem])
+}
+
+model WarmupMailLog {
+  id                    String   @id @default(cuid())
+  senderMailAccountId   String
+  recipientEmail        String
+  recipientType         String   // "system" | "external"
+  recipientMailAccountId String?
+  direction             String   // "outbound" | "reply"
+  subject               String
+  body                  String   @db.Text
+  status                String   // "sent" | "failed" | "bounced"
+  stage                 Int      @default(0)
+  sentAt                DateTime @default(now())
+  errorMessage          String?
+
+  senderMailAccount   MailAccount  @relation("SenderMailbox", fields: [senderMailAccountId], references: [id], onDelete: Cascade)
+  recipientMailAccount MailAccount? @relation("RecipientMailboxSends", fields: [recipientMailAccountId], references: [id], onDelete: SetNull)
+
+  @@index([senderMailAccountId, sentAt])
+  @@index([recipientMailAccountId, sentAt])
+  @@index([status, sentAt])
+}
+
+// ─── NextAuth required models ───
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token                  String? @db.Text
+  session_state             String?
+  refresh_token_expires_in  Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}

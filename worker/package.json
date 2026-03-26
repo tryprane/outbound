@@ -1,0 +1,39 @@
+{
+  "name": "worker",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "npx ts-node --transpile-only -r tsconfig-paths/register index.ts",
+    "build": "tsc && tsc-alias",
+    "start": "node -r module-alias/register dist/index.js",
+    "db:push": "npx prisma db push --accept-data-loss",
+    "db:generate": "npx prisma generate"
+  },
+  "_moduleAliases": {
+    "~": "dist"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@hapi/boom": "^10.0.1",
+    "@prisma/client": "^5.10.2",
+    "@whiskeysockets/baileys": "^6.7.8",
+    "bullmq": "^5.4.2",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.4.5",
+    "googleapis": "^133.0.0",
+    "ioredis": "^5.3.2",
+    "lucide-react": "^0.577.0",
+    "module-alias": "^2.3.4",
+    "nodemailer": "^6.9.10"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "@types/node": "^20.11.24",
+    "@types/nodemailer": "^6.4.14",
+    "prisma": "^5.10.2",
+    "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.16",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.3.3"
+  }
+}

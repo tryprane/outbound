@@ -1,0 +1,116 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  APP_NAME: outbound
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/web
+          file: ./apps/web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-web:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-web:latest
+
+      - name: Build and push worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./worker
+          file: ./worker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-worker:latest
+
+      - name: Build and push scraper image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/scraper
+          file: ./apps/scraper/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-scraper:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-scraper:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy on VPS over SSH
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          envs: WEB_IMAGE,WORKER_IMAGE,SCRAPER_IMAGE,POSTGRES_PASSWORD,PUBLIC_URL,NEXTAUTH_SECRET,ENCRYPTION_KEY,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,GEMINI_API_KEY,GHCR_USERNAME,GHCR_TOKEN,GHCR_EMAIL,WORKER_GLOBAL_ACTIVE_LIMIT,WORKER_SWEEP_INTERVAL_MS,WORKER_IDLE_CLOSE_MS,CAMPAIGN_WORKER_CONCURRENCY,MAIL_WORKER_CONCURRENCY,SCRAPE_WORKER_CONCURRENCY,WHATSAPP_WORKER_CONCURRENCY,WARMUP_WORKER_CONCURRENCY,WHATSAPP_SESSION_WORKER_CONCURRENCY,WHATSAPP_SESSION_KEEPALIVE
+          envs_format: export
+          WEB_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-web:${{ github.sha }}
+          WORKER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-worker:${{ github.sha }}
+          SCRAPER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-scraper:${{ github.sha }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_EMAIL: ${{ secrets.GHCR_EMAIL }}
+          WORKER_GLOBAL_ACTIVE_LIMIT: ${{ secrets.WORKER_GLOBAL_ACTIVE_LIMIT }}
+          WORKER_SWEEP_INTERVAL_MS: ${{ secrets.WORKER_SWEEP_INTERVAL_MS }}
+          WORKER_IDLE_CLOSE_MS: ${{ secrets.WORKER_IDLE_CLOSE_MS }}
+          CAMPAIGN_WORKER_CONCURRENCY: ${{ secrets.CAMPAIGN_WORKER_CONCURRENCY }}
+          MAIL_WORKER_CONCURRENCY: ${{ secrets.MAIL_WORKER_CONCURRENCY }}
+          SCRAPE_WORKER_CONCURRENCY: ${{ secrets.SCRAPE_WORKER_CONCURRENCY }}
+          WHATSAPP_WORKER_CONCURRENCY: ${{ secrets.WHATSAPP_WORKER_CONCURRENCY }}
+          WARMUP_WORKER_CONCURRENCY: ${{ secrets.WARMUP_WORKER_CONCURRENCY }}
+          WHATSAPP_SESSION_WORKER_CONCURRENCY: ${{ secrets.WHATSAPP_SESSION_WORKER_CONCURRENCY }}
+          WHATSAPP_SESSION_KEEPALIVE: ${{ secrets.WHATSAPP_SESSION_KEEPALIVE }}
+          script: |
+            set -euo pipefail
+            if [[ ! -d /opt/outbound/.git ]]; then
+              echo "Repo checkout missing at /opt/outbound. Clone it first." >&2
+              exit 1
+            fi
+            cd /opt/outbound
+            git fetch origin main
+            git reset --hard origin/main
+            bash deploy/scripts/remote-deploy.sh

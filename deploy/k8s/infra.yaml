@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: outbound-postgres-data
+  namespace: outbound
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outbound-postgres
+  namespace: outbound
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: outbound-postgres
+  template:
+    metadata:
+      labels:
+        app: outbound-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: outbound
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: outbound-env
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U postgres -d outbound"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U postgres -d outbound"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: outbound-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: outbound-postgres
+  namespace: outbound
+spec:
+  selector:
+    app: outbound-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: outbound-redis-data
+  namespace: outbound
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outbound-redis
+  namespace: outbound
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: outbound-redis
+  template:
+    metadata:
+      labels:
+        app: outbound-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+          command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli ping | grep PONG"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli ping | grep PONG"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: outbound-redis-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: outbound-redis
+  namespace: outbound
+spec:
+  selector:
+    app: outbound-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+

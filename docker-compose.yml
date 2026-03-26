@@ -1,0 +1,67 @@
+services:
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/outreachos
+      REDIS_URL: redis://redis:6379
+      SCRAPER_SERVICE_URL: http://scraper:8000
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/outreachos
+      REDIS_URL: redis://redis:6379
+      SCRAPER_SERVICE_URL: http://scraper:8000
+
+  scraper:
+    build:
+      context: ./apps/scraper
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: outreachos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  pgdata:
+  redisdata:

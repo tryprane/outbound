@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+
+# environment variables
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+out.txt
+
+# Prisma
+/generated/prisma
+/worker/prisma/migrations/
+/prisma/migrations/
+# (If migrations are source code, you don't ignore them, but if they are generated you might. Let's not ignore migrations just in case.)
+# Usually generated Prisma client is ignored
+*.prisma/client
+
+# typescript
+dist/
+dist-tsc/
+build/
+*.tsbuildinfo
+
+# next.js (if applicable in apps/web)
+.next/
+out/
+
+# IDEs and OS files
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Project specific / sensitive / generated files
+dump.rdb
+pgpass.txt
+.baileys-sessions/
