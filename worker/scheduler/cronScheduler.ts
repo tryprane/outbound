@@ -219,15 +219,6 @@ function assessCampaignDomainRisk(
   return null
 }
 
-export const cronSchedulerTestUtils = {
-  recommendedLimitFromStage,
-  msUntilMidnight,
-  dayWindowForSnapshot,
-  summarizeMailboxHealthStatus,
-  assessCampaignDomainRisk,
-  computeWarmupProgression,
-}
-
 async function captureDomainHealthSnapshots() {
   const [accounts, activeAssignments, deliveryStatsByDomain, complaintStatsByDomain] = await Promise.all([
     prisma.mailAccount.findMany({

@@ -448,19 +448,6 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
   }
 }
 
-export const warmupProcessorTestUtils = {
-  warmupDeps,
-  getFirstName,
-  pickTemplate,
-  buildWarmupMail,
-  buildReplyMail,
-  classifyWarmupFailure,
-  isAuthGrantFailure,
-  chooseWarmupRecipient,
-  sendFromAccount,
-  processWarmupJob,
-}
-
 export function startWarmupWorker() {
   const worker = new Worker<WarmupJobData>('warmup-queue', processWarmupJob, {
     connection: getRedisConnection(),

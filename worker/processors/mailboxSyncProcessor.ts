@@ -142,13 +142,6 @@ export function shouldSkipMailboxSync(account: { type: string; mailboxSyncError:
   )
 }
 
-export const mailboxSyncProcessorTestUtils = {
-  detectWarmup,
-  calculateHealth,
-  deriveWarmupAutomation,
-  shouldSkipMailboxSync,
-}
-
 async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
   const account = await prisma.mailAccount.findUnique({ where: { id: job.data.mailAccountId } })
   if (!account) return
