@@ -8,6 +8,7 @@ import { CampaignJobData } from '~/queues/campaignQueue'
 import { scrapeQueue, ScrapeJobData } from '~/queues/scrapeQueue'
 import { mailQueue, MailJobData } from '~/queues/mailQueue'
 import { whatsappQueue, WhatsAppJobData } from '~/queues/whatsappQueue'
+import { evaluateMailAccountGuardrail } from '~/lib/campaignGuardrails'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
@@ -190,8 +191,7 @@ async function pickNextAccount(campaignId: string, dailyMailsPerAccount: number)
 
   for (const a of assignments) {
     const acc = a.mailAccount
-    if (!acc.isActive) continue
-    if (acc.warmupStatus !== 'WARMED') continue
+    if (!evaluateMailAccountGuardrail(acc).eligible) continue
     if (acc.sentToday >= dailyMailsPerAccount) continue
     if (acc.lastMailSentAt) {
       const elapsed = now.getTime() - acc.lastMailSentAt.getTime()

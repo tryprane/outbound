@@ -3,9 +3,18 @@ import { getRedisConnection } from '~/lib/redis'
 import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { prisma } from '~/lib/prisma'
 import { WarmupJobData } from '~/queues/warmupQueue'
+import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { sendViaGmail, sendViaZoho } from '~/lib/mailSenders'
 
 const REPLY_PROBABILITY = 0.35
+const warmupDeps = {
+  prisma,
+  mailboxSyncQueue,
+  sendViaGmail,
+  sendViaZoho,
+  random: () => Math.random(),
+  now: () => Date.now(),
+}
 type WarmupMailTemplate = {
   subject: string
   body: (args: { senderName: string; recipientName: string }) => string
@@ -171,13 +180,14 @@ function isAuthGrantFailure(error: unknown): boolean {
 }
 
 async function chooseWarmupRecipient(senderAccountId: string, senderEmail: string) {
-  const customRecipients = await prisma.warmupRecipient.findMany({
+  const senderDomain = senderEmail.split('@')[1]?.toLowerCase() || ''
+  const customRecipients = await warmupDeps.prisma.warmupRecipient.findMany({
     where: { isActive: true, isSystem: false, email: { not: senderEmail } },
     orderBy: { createdAt: 'asc' },
     take: 100,
   })
 
-  const systemCandidates = await prisma.mailAccount.findMany({
+  const systemCandidates = await warmupDeps.prisma.mailAccount.findMany({
     where: {
       id: { not: senderAccountId },
       warmupStatus: { in: ['WARMING', 'WARMED'] },
@@ -189,11 +199,15 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
   })
 
   if (systemCandidates.length > 0) {
-    const counts = await prisma.warmupMailLog.groupBy({
+    const crossDomainSystemCandidates = systemCandidates.filter(
+      (candidate) => (candidate.email.split('@')[1]?.toLowerCase() || '') !== senderDomain
+    )
+    const eligibleSystemCandidates = crossDomainSystemCandidates.length > 0 ? crossDomainSystemCandidates : systemCandidates
+    const counts = await warmupDeps.prisma.warmupMailLog.groupBy({
       by: ['recipientMailAccountId'],
       where: {
         senderMailAccountId: senderAccountId,
-        recipientMailAccountId: { in: systemCandidates.map((s) => s.id) },
+        recipientMailAccountId: { in: eligibleSystemCandidates.map((s) => s.id) },
       },
       _count: { _all: true },
     })
@@ -202,7 +216,7 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
       if (item.recipientMailAccountId) countMap.set(item.recipientMailAccountId, item._count._all)
     }
 
-    const sorted = [...systemCandidates].sort((a, b) => {
+    const sorted = [...eligibleSystemCandidates].sort((a, b) => {
       const ac = countMap.get(a.id) ?? 0
       const bc = countMap.get(b.id) ?? 0
       return ac - bc
@@ -216,21 +230,48 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
     }
   }
 
-  const fallbackSystemCandidates = await prisma.mailAccount.findMany({
+  if (customRecipients.length > 0) {
+    const crossDomainCustomRecipients = customRecipients.filter(
+      (recipient) => (recipient.email.split('@')[1]?.toLowerCase() || '') !== senderDomain
+    )
+    const eligibleCustomRecipients = crossDomainCustomRecipients.length > 0 ? crossDomainCustomRecipients : customRecipients
+    const counts = await warmupDeps.prisma.warmupMailLog.groupBy({
+      by: ['recipientEmail'],
+      where: { senderMailAccountId: senderAccountId, recipientEmail: { in: eligibleCustomRecipients.map((c) => c.email) } },
+      _count: { _all: true },
+    })
+    const countMap = new Map<string, number>()
+    for (const item of counts) countMap.set(item.recipientEmail, item._count._all)
+    const sorted = [...eligibleCustomRecipients].sort((a, b) => (countMap.get(a.email) ?? 0) - (countMap.get(b.email) ?? 0))
+    const chosen = sorted[0]
+    return {
+      type: 'external' as const,
+      email: chosen.email,
+      recipientMailAccountId: null,
+      recipientDisplayName: chosen.name || chosen.email,
+    }
+  }
+
+  const fallbackSystemCandidates = await warmupDeps.prisma.mailAccount.findMany({
     where: {
       id: { not: senderAccountId },
       email: { not: senderEmail },
+      warmupStatus: { in: ['WARMING', 'WARMED', 'PAUSED'] },
     },
     select: { id: true, email: true, displayName: true, type: true, warmupStatus: true },
     take: 100,
   })
 
   if (fallbackSystemCandidates.length > 0) {
-    const counts = await prisma.warmupMailLog.groupBy({
+    const crossDomainFallbackCandidates = fallbackSystemCandidates.filter(
+      (candidate) => (candidate.email.split('@')[1]?.toLowerCase() || '') !== senderDomain
+    )
+    const eligibleFallbackCandidates = crossDomainFallbackCandidates.length > 0 ? crossDomainFallbackCandidates : fallbackSystemCandidates
+    const counts = await warmupDeps.prisma.warmupMailLog.groupBy({
       by: ['recipientMailAccountId'],
       where: {
         senderMailAccountId: senderAccountId,
-        recipientMailAccountId: { in: fallbackSystemCandidates.map((s) => s.id) },
+        recipientMailAccountId: { in: eligibleFallbackCandidates.map((s) => s.id) },
       },
       _count: { _all: true },
     })
@@ -239,7 +280,7 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
       if (item.recipientMailAccountId) countMap.set(item.recipientMailAccountId, item._count._all)
     }
 
-    const sorted = [...fallbackSystemCandidates].sort((a, b) => {
+    const sorted = [...eligibleFallbackCandidates].sort((a, b) => {
       const ac = countMap.get(a.id) ?? 0
       const bc = countMap.get(b.id) ?? 0
       return ac - bc
@@ -256,38 +297,20 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
     }
   }
 
-  if (customRecipients.length > 0) {
-    const counts = await prisma.warmupMailLog.groupBy({
-      by: ['recipientEmail'],
-      where: { senderMailAccountId: senderAccountId, recipientEmail: { in: customRecipients.map((c) => c.email) } },
-      _count: { _all: true },
-    })
-    const countMap = new Map<string, number>()
-    for (const item of counts) countMap.set(item.recipientEmail, item._count._all)
-    const sorted = [...customRecipients].sort((a, b) => (countMap.get(a.email) ?? 0) - (countMap.get(b.email) ?? 0))
-    const chosen = sorted[0]
-    return {
-      type: 'external' as const,
-      email: chosen.email,
-      recipientMailAccountId: null,
-      recipientDisplayName: chosen.name || chosen.email,
-    }
-  }
-
   return null
 }
 
 async function sendFromAccount(mailAccountId: string, toEmail: string, subject: string, html: string) {
-  const account = await prisma.mailAccount.findUnique({ where: { id: mailAccountId } })
+  const account = await warmupDeps.prisma.mailAccount.findUnique({ where: { id: mailAccountId } })
   if (!account) throw new Error('Sender account missing')
-  if (account.type === 'zoho') return sendViaZoho(mailAccountId, toEmail, subject, html)
-  if (account.type === 'gmail') return sendViaGmail(mailAccountId, toEmail, subject, html)
+  if (account.type === 'zoho') return warmupDeps.sendViaZoho(mailAccountId, toEmail, subject, html)
+  if (account.type === 'gmail') return warmupDeps.sendViaGmail(mailAccountId, toEmail, subject, html)
   throw new Error(`Unsupported sender type: ${account.type}`)
 }
 
 async function processWarmupJob(job: Job<WarmupJobData>) {
   const { mailAccountId } = job.data
-  const sender = await prisma.mailAccount.findUnique({ where: { id: mailAccountId } })
+  const sender = await warmupDeps.prisma.mailAccount.findUnique({ where: { id: mailAccountId } })
   if (!sender) return
   if (!sender.warmupAutoEnabled) {
     console.log(`[Warmup] Skipping ${sender.email}: auto warmup is OFF`)
@@ -303,8 +326,8 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
     console.log(`[Warmup] Skipping ${sender.email}: daily limit reached (${sender.sentToday}/${sender.recommendedDailyLimit})`)
     return
   }
-  if (sender.lastMailSentAt && Date.now() - sender.lastMailSentAt.getTime() < intervalMs) {
-    const waitMs = intervalMs - (Date.now() - sender.lastMailSentAt.getTime())
+  if (sender.lastMailSentAt && warmupDeps.now() - sender.lastMailSentAt.getTime() < intervalMs) {
+    const waitMs = intervalMs - (warmupDeps.now() - sender.lastMailSentAt.getTime())
     console.log(`[Warmup] Skipping ${sender.email}: cooldown active for ${Math.ceil(waitMs / 60_000)} more minute(s)`)
     return
   }
@@ -318,12 +341,12 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
   const warmupMail = buildWarmupMail(sender.warmupStage, sender.displayName, getFirstName(recipient.recipientDisplayName))
   try {
     await sendFromAccount(sender.id, recipient.email, warmupMail.subject, warmupMail.body)
-    await prisma.$transaction([
-      prisma.mailAccount.update({
+    await warmupDeps.prisma.$transaction([
+      warmupDeps.prisma.mailAccount.update({
         where: { id: sender.id },
         data: { sentToday: { increment: 1 }, lastMailSentAt: new Date() },
       }),
-      prisma.warmupMailLog.create({
+      warmupDeps.prisma.warmupMailLog.create({
         data: {
           senderMailAccountId: sender.id,
           recipientEmail: recipient.email,
@@ -340,8 +363,13 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
     console.log(
       `[Warmup] Sent from ${sender.email} to ${recipient.email} | stage=${sender.warmupStage} | auto=${sender.warmupAutoEnabled}`
     )
+    await warmupDeps.mailboxSyncQueue.add(
+      'sync-mailbox' as never,
+      { mailAccountId: sender.id, reason: 'post-send' } as never,
+      { jobId: `mailbox-post-warmup-${sender.id}-${warmupDeps.now()}` }
+    )
   } catch (err) {
-    await prisma.warmupMailLog.create({
+    await warmupDeps.prisma.warmupMailLog.create({
       data: {
         senderMailAccountId: sender.id,
         recipientEmail: recipient.email,
@@ -354,10 +382,10 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
         stage: sender.warmupStage,
         errorMessage: err instanceof Error ? err.message : String(err),
       },
-    })
+      })
 
     if (isAuthGrantFailure(err)) {
-      await prisma.mailAccount.update({
+      await warmupDeps.prisma.mailAccount.update({
         where: { id: sender.id },
         data: {
           warmupStatus: 'PAUSED',
@@ -370,18 +398,18 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
     return
   }
 
-  if (recipient.type === 'system' && recipient.recipientMailAccountId && Math.random() < REPLY_PROBABILITY) {
-    const replier = await prisma.mailAccount.findUnique({ where: { id: recipient.recipientMailAccountId } })
+  if (recipient.type === 'system' && recipient.recipientMailAccountId && warmupDeps.random() < REPLY_PROBABILITY) {
+    const replier = await warmupDeps.prisma.mailAccount.findUnique({ where: { id: recipient.recipientMailAccountId } })
     if (replier && replier.warmupStatus !== 'COLD') {
       const reply = buildReplyMail(sender.displayName, replier.displayName)
       try {
         await sendFromAccount(replier.id, sender.email, reply.subject, reply.body)
-        await prisma.$transaction([
-          prisma.mailAccount.update({
+        await warmupDeps.prisma.$transaction([
+          warmupDeps.prisma.mailAccount.update({
             where: { id: replier.id },
             data: { sentToday: { increment: 1 }, lastMailSentAt: new Date() },
           }),
-          prisma.warmupMailLog.create({
+          warmupDeps.prisma.warmupMailLog.create({
             data: {
               senderMailAccountId: replier.id,
               recipientEmail: sender.email,
@@ -395,8 +423,13 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
             },
           }),
         ])
+        await warmupDeps.mailboxSyncQueue.add(
+          'sync-mailbox' as never,
+          { mailAccountId: replier.id, reason: 'post-send' } as never,
+          { jobId: `mailbox-post-reply-${replier.id}-${warmupDeps.now()}` }
+        )
       } catch (err) {
-        await prisma.warmupMailLog.create({
+        await warmupDeps.prisma.warmupMailLog.create({
           data: {
             senderMailAccountId: replier.id,
             recipientEmail: sender.email,
@@ -413,6 +446,19 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
       }
     }
   }
+}
+
+export const warmupProcessorTestUtils = {
+  warmupDeps,
+  getFirstName,
+  pickTemplate,
+  buildWarmupMail,
+  buildReplyMail,
+  classifyWarmupFailure,
+  isAuthGrantFailure,
+  chooseWarmupRecipient,
+  sendFromAccount,
+  processWarmupJob,
 }
 
 export function startWarmupWorker() {

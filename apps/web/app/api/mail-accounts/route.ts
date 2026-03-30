@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getDomainDiagnostics, getDomainDiagnosticsBlockers, type DomainProviderHint } from '@/lib/domainDiagnostics'
 import { prisma } from '@/lib/prisma'
+import { getMailboxSyncQueue } from '@/lib/mailboxSyncQueue'
 import { getWhatsAppSessionQueue } from '@/lib/whatsappSessionQueue'
 import { getWarmupQueue } from '@/lib/warmupQueue'
+import { extractEmailDomain, providerHintFromType } from '@/lib/campaignGuardrails'
 
 const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
 type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
@@ -9,6 +12,219 @@ type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
 function recommendedLimitFromStage(stage: number): number {
   const idx = Math.max(0, Math.min(stage, WARMUP_LIMIT_PLAN.length - 1))
   return WARMUP_LIMIT_PLAN[idx]
+}
+
+type DomainHealthSummary = {
+  domain: string
+  providerHint: DomainProviderHint
+  mailboxCount: number
+  healthyCount: number
+  warmingCount: number
+  atRiskCount: number
+  pausedCount: number
+  averageHealthScore: number
+  activeCampaignCount: number
+  sentCount7d: number
+  failedCount7d: number
+  bouncedCount7d: number
+  bounceRate7d: number
+  failureRate7d: number
+  complaintCount14d: number
+  healthStatus: 'healthy' | 'warming' | 'at_risk' | 'paused'
+  notes: string
+}
+
+function summarizeDomainMailboxStatus(account: {
+  mailboxHealthStatus: string
+  warmupStatus: WarmupStatus
+}): 'healthy' | 'warming' | 'at_risk' | 'paused' {
+  if (account.mailboxHealthStatus === 'healthy') return 'healthy'
+  if (account.mailboxHealthStatus === 'at_risk') return 'at_risk'
+  if (account.mailboxHealthStatus === 'paused' || account.warmupStatus === 'PAUSED') return 'paused'
+  return 'warming'
+}
+
+async function buildDomainHealthSummary(): Promise<DomainHealthSummary[]> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const complaintSince = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+  const [accounts, activeAssignments, recentSentMail, complaintEvents] = await Promise.all([
+    prisma.mailAccount.findMany({
+      select: {
+        email: true,
+        type: true,
+        warmupStatus: true,
+        mailboxHealthStatus: true,
+        mailboxHealthScore: true,
+      },
+    }),
+    prisma.campaignMailAccount.findMany({
+      where: {
+        campaign: {
+          channel: 'EMAIL',
+          status: 'active',
+        },
+      },
+      select: {
+        campaignId: true,
+        mailAccount: {
+          select: {
+            email: true,
+            type: true,
+          },
+        },
+      },
+    }),
+    prisma.sentMail.findMany({
+      where: {
+        sentAt: { gte: since },
+      },
+      select: {
+        status: true,
+        mailAccount: {
+          select: {
+            email: true,
+            type: true,
+          },
+        },
+      },
+    }),
+    prisma.complaintEvent.findMany({
+      where: {
+        createdAt: { gte: complaintSince },
+      },
+      select: {
+        mailAccount: {
+          select: {
+            email: true,
+            type: true,
+          },
+        },
+      },
+    }),
+  ])
+
+  const activeCampaignsByDomain = new Map<string, Set<string>>()
+  for (const assignment of activeAssignments) {
+    const domain = extractEmailDomain(assignment.mailAccount.email)
+    if (!domain) continue
+    const providerHint = providerHintFromType(assignment.mailAccount.type)
+    const key = `${providerHint}:${domain}`
+    const current = activeCampaignsByDomain.get(key) || new Set<string>()
+    current.add(assignment.campaignId)
+    activeCampaignsByDomain.set(key, current)
+  }
+
+  const grouped = new Map<string, DomainHealthSummary & { healthScoreTotal: number }>()
+  for (const account of accounts) {
+    const domain = extractEmailDomain(account.email)
+    if (!domain) continue
+    const providerHint = providerHintFromType(account.type)
+    const key = `${providerHint}:${domain}`
+    const current = grouped.get(key) || {
+      domain,
+      providerHint,
+      mailboxCount: 0,
+      healthyCount: 0,
+      warmingCount: 0,
+      atRiskCount: 0,
+      pausedCount: 0,
+      averageHealthScore: 0,
+      activeCampaignCount: 0,
+      sentCount7d: 0,
+      failedCount7d: 0,
+      bouncedCount7d: 0,
+      bounceRate7d: 0,
+      failureRate7d: 0,
+      complaintCount14d: 0,
+      healthStatus: 'warming' as const,
+      notes: '',
+      healthScoreTotal: 0,
+    }
+    current.mailboxCount += 1
+    current.healthScoreTotal += account.mailboxHealthScore
+    const status = summarizeDomainMailboxStatus(account)
+    if (status === 'healthy') current.healthyCount += 1
+    if (status === 'warming') current.warmingCount += 1
+    if (status === 'at_risk') current.atRiskCount += 1
+    if (status === 'paused') current.pausedCount += 1
+    grouped.set(key, current)
+  }
+
+  for (const log of recentSentMail) {
+    const domain = extractEmailDomain(log.mailAccount.email)
+    if (!domain) continue
+    const providerHint = providerHintFromType(log.mailAccount.type)
+    const key = `${providerHint}:${domain}`
+    const current = grouped.get(key)
+    if (!current) continue
+    current.sentCount7d += 1
+    if (log.status === 'failed') current.failedCount7d += 1
+    if (log.status === 'bounced') current.bouncedCount7d += 1
+  }
+
+  for (const complaint of complaintEvents) {
+    const domain = extractEmailDomain(complaint.mailAccount?.email)
+    if (!domain) continue
+    const providerHint = providerHintFromType(complaint.mailAccount?.type || 'unknown')
+    const key = `${providerHint}:${domain}`
+    const current = grouped.get(key)
+    if (!current) continue
+    current.complaintCount14d += 1
+  }
+
+  return Array.from(grouped.values())
+    .map((entry) => {
+      const activeCampaignCount = activeCampaignsByDomain.get(`${entry.providerHint}:${entry.domain}`)?.size || 0
+      const averageHealthScore =
+        entry.mailboxCount > 0 ? Math.round(entry.healthScoreTotal / entry.mailboxCount) : 0
+      const bounceRate7d =
+        entry.sentCount7d > 0 ? Number((entry.bouncedCount7d / entry.sentCount7d).toFixed(3)) : 0
+      const failureRate7d =
+        entry.sentCount7d > 0 ? Number(((entry.failedCount7d + entry.bouncedCount7d) / entry.sentCount7d).toFixed(3)) : 0
+      let healthStatus: DomainHealthSummary['healthStatus'] = 'warming'
+      if (entry.pausedCount === entry.mailboxCount && entry.mailboxCount > 0) healthStatus = 'paused'
+      else if (
+        (entry.atRiskCount > 0 && entry.healthyCount === 0) ||
+        bounceRate7d >= 0.12 ||
+        failureRate7d >= 0.2 ||
+        entry.complaintCount14d > 0
+      ) healthStatus = 'at_risk'
+      else if (entry.healthyCount > 0 && entry.atRiskCount === 0 && entry.pausedCount === 0) healthStatus = 'healthy'
+      const notes = [
+        `${entry.healthyCount} healthy`,
+        `${entry.atRiskCount} at risk`,
+        `${entry.pausedCount} paused`,
+        `${activeCampaignCount} active campaigns`,
+        `${Math.round(bounceRate7d * 100)}% bounce`,
+        `${Math.round(failureRate7d * 100)}% failure`,
+        `${entry.complaintCount14d} complaints`,
+      ].join(' | ')
+
+      return {
+        domain: entry.domain,
+        providerHint: entry.providerHint,
+        mailboxCount: entry.mailboxCount,
+        healthyCount: entry.healthyCount,
+        warmingCount: entry.warmingCount,
+        atRiskCount: entry.atRiskCount,
+        pausedCount: entry.pausedCount,
+        averageHealthScore,
+        activeCampaignCount,
+        sentCount7d: entry.sentCount7d,
+        failedCount7d: entry.failedCount7d,
+        bouncedCount7d: entry.bouncedCount7d,
+        bounceRate7d,
+        failureRate7d,
+        complaintCount14d: entry.complaintCount14d,
+        healthStatus,
+        notes,
+      }
+    })
+    .sort((a, b) => {
+      if (b.atRiskCount !== a.atRiskCount) return b.atRiskCount - a.atRiskCount
+      if (b.pausedCount !== a.pausedCount) return b.pausedCount - a.pausedCount
+      return a.domain.localeCompare(b.domain)
+    })
 }
 
 // GET /api/mail-accounts
@@ -76,6 +292,117 @@ export async function GET(request: NextRequest) {
       })
       return NextResponse.json(logs)
     }
+    if (resource === 'mailbox-health') {
+      const snapshots = await prisma.warmupHealthSnapshot.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        select: {
+          id: true,
+          mailAccountId: true,
+          periodStart: true,
+          periodEnd: true,
+          healthScore: true,
+          healthStatus: true,
+          inboxRate: true,
+          spamRate: true,
+          readRate: true,
+          replyRate: true,
+          rescueRate: true,
+          sentCount: true,
+          receivedCount: true,
+          rescuedCount: true,
+          notes: true,
+          createdAt: true,
+          mailAccount: {
+            select: { email: true, displayName: true, type: true },
+          },
+        },
+      })
+      return NextResponse.json(snapshots)
+    }
+    if (resource === 'mailbox-messages') {
+      const mailAccountId = request.nextUrl.searchParams.get('mailAccountId') || undefined
+      const messages = await prisma.mailboxMessage.findMany({
+        where: mailAccountId ? { mailAccountId } : undefined,
+        orderBy: [{ receivedAt: 'desc' }, { sentAt: 'desc' }],
+        take: 100,
+        select: {
+          id: true,
+          mailAccountId: true,
+          providerMessageId: true,
+          providerThreadId: true,
+          folderKind: true,
+          folderName: true,
+          direction: true,
+          fromEmail: true,
+          toEmail: true,
+          subject: true,
+          snippet: true,
+          sentAt: true,
+          receivedAt: true,
+          isWarmup: true,
+          isRead: true,
+          isStarred: true,
+          isSpam: true,
+          openedAt: true,
+          repliedAt: true,
+          rescuedAt: true,
+          createdAt: true,
+          mailAccount: { select: { email: true, displayName: true, type: true } },
+        },
+      })
+      return NextResponse.json(messages)
+    }
+    if (resource === 'domain-health') {
+      const [domains, history] = await Promise.all([
+        buildDomainHealthSummary(),
+        prisma.domainHealthSnapshot.findMany({
+          orderBy: [{ periodEnd: 'desc' }, { domain: 'asc' }],
+          take: 60,
+          select: {
+            id: true,
+            domain: true,
+            providerHint: true,
+            periodStart: true,
+            periodEnd: true,
+            mailboxCount: true,
+            healthyCount: true,
+            warmingCount: true,
+            atRiskCount: true,
+            pausedCount: true,
+            averageHealthScore: true,
+            activeCampaignCount: true,
+            sentCount7d: true,
+            failedCount7d: true,
+            bouncedCount7d: true,
+            bounceRate7d: true,
+            failureRate7d: true,
+            complaintCount14d: true,
+            notes: true,
+            createdAt: true,
+          },
+        }),
+      ])
+      return NextResponse.json({ domains, history })
+    }
+    if (resource === 'domain-diagnostics') {
+      const accounts = await prisma.mailAccount.findMany({
+        select: { email: true, type: true },
+      })
+      const uniqueDomainMap = new Map<string, { domain: string; providerHint: DomainProviderHint }>()
+      for (const account of accounts) {
+        const domain = extractEmailDomain(account.email)
+        if (!domain) continue
+        const providerHint = providerHintFromType(account.type)
+        uniqueDomainMap.set(`${domain}:${providerHint}`, { domain, providerHint })
+      }
+      const uniqueDomains = Array.from(uniqueDomainMap.values())
+
+      const diagnostics = await Promise.all(
+        uniqueDomains.map((entry) => getDomainDiagnostics(entry.domain, entry.providerHint))
+      )
+      return NextResponse.json(diagnostics)
+    }
     if (resource === 'whatsapp-accounts') {
       const accounts = await prisma.whatsAppAccount.findMany({
         orderBy: { createdAt: 'asc' },
@@ -120,7 +447,31 @@ export async function GET(request: NextRequest) {
         lastMailSentAt: true,
         lastResetAt: true,
         tokenExpiry: true,
+        imapHost: true,
+        imapPort: true,
+        imapSecure: true,
+        mailboxLastSyncedAt: true,
+        mailboxSyncStatus: true,
+        mailboxSyncError: true,
+        mailboxHealthScore: true,
+        mailboxHealthStatus: true,
         _count: { select: { sentMails: true } },
+        warmupHealthSnapshots: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            periodEnd: true,
+            healthScore: true,
+            healthStatus: true,
+            inboxRate: true,
+            spamRate: true,
+            readRate: true,
+            replyRate: true,
+            rescueRate: true,
+            notes: true,
+          },
+        },
       },
     })
 
@@ -197,6 +548,41 @@ export async function POST(request: NextRequest) {
         { jobId: `wa-connect-${account.id}-${Date.now()}` }
       )
       return NextResponse.json({ success: true, account }, { status: 201 })
+    }
+
+    if (resource === 'warmup-recipients-bulk') {
+      const body = await request.json() as { entries?: string; isActive?: boolean }
+      const rawEntries = body.entries || ''
+      const emails = Array.from(
+        new Set(
+          rawEntries
+            .split(/[\s,;\n\r\t]+/)
+            .map((value) => value.trim().toLowerCase())
+            .filter((value) => value.includes('@'))
+        )
+      )
+
+      if (emails.length === 0) {
+        return NextResponse.json({ error: 'Add at least one valid email address' }, { status: 400 })
+      }
+
+      const operations = emails.map((email) =>
+        prisma.warmupRecipient.upsert({
+          where: { email },
+          create: {
+            email,
+            isActive: body.isActive ?? true,
+            isSystem: false,
+          },
+          update: {
+            isActive: body.isActive ?? true,
+            isSystem: false,
+          },
+          select: { id: true, email: true },
+        })
+      )
+      const recipients = await prisma.$transaction(operations)
+      return NextResponse.json({ success: true, count: recipients.length, recipients }, { status: 201 })
     }
 
     if (resource !== 'warmup-recipients') {
@@ -315,8 +701,9 @@ export async function PATCH(request: NextRequest) {
       warmupStage?: number
       warmupAutoEnabled?: boolean
       runWarmupNow?: boolean
+      runMailboxSyncNow?: boolean
     }
-    const { id, isActive, dailyLimit, warmupStatus, warmupStage, warmupAutoEnabled, runWarmupNow } = body
+    const { id, isActive, dailyLimit, warmupStatus, warmupStage, warmupAutoEnabled, runWarmupNow, runMailboxSyncNow } = body
 
     const account = await prisma.mailAccount.findUnique({ where: { id } })
     if (!account) {
@@ -329,6 +716,20 @@ export async function PATCH(request: NextRequest) {
         { error: 'Only WARMED mailboxes can be activated for campaign sending.' },
         { status: 400 }
       )
+    }
+    if (isActive === true) {
+      const domain = extractEmailDomain(account.email)
+      if (domain) {
+        const providerHint = providerHintFromType(account.type)
+        const diagnostics = await getDomainDiagnostics(domain, providerHint)
+        const blockers = getDomainDiagnosticsBlockers(diagnostics)
+        if (blockers.length > 0) {
+          return NextResponse.json(
+            { error: `Mailbox activation blocked by domain safety checks: ${blockers.join(', ')}` },
+            { status: 400 }
+          )
+        }
+      }
     }
 
     const data: Record<string, unknown> = {
@@ -395,6 +796,14 @@ export async function PATCH(request: NextRequest) {
         'process-warmup' as never,
         { mailAccountId: updated.id } as never,
         { jobId: `warmup-manual-${updated.id}-${Date.now()}` }
+      )
+    }
+
+    if (runMailboxSyncNow) {
+      await getMailboxSyncQueue().add(
+        'sync-mailbox' as never,
+        { mailAccountId: updated.id, reason: 'manual' } as never,
+        { jobId: `mailbox-sync-manual-${updated.id}-${Date.now()}` }
       )
     }
 

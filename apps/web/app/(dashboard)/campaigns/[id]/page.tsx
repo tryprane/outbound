@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { evaluateMailAccountGuardrail } from '@/lib/campaignGuardrails'
 
 type CampaignChannel = 'EMAIL' | 'WHATSAPP'
 
@@ -13,6 +14,7 @@ interface CampaignDetail {
   type: string
   channel: CampaignChannel
   status: 'draft' | 'active' | 'paused' | 'completed' | 'failed'
+  guardrailReason: string | null
   createdAt: string
   scrapeEmail: boolean
   scrapeWhatsapp: boolean
@@ -29,6 +31,9 @@ interface CampaignDetail {
       type: string
       isActive: boolean
       warmupStatus: 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
+      mailboxHealthStatus: string
+      mailboxHealthScore: number
+      mailboxSyncStatus: string
       sentToday: number
       lastMailSentAt: string | null
     }
@@ -138,7 +143,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   const isWhatsApp = campaign.channel === 'WHATSAPP'
   const activeSenders = isWhatsApp
     ? campaign.whatsappAccounts.filter((a) => a.whatsappAccount.isActive && a.whatsappAccount.connectionStatus === 'CONNECTED').length
-    : campaign.mailAccounts.filter((a) => a.mailAccount.isActive && a.mailAccount.warmupStatus === 'WARMED').length
+    : campaign.mailAccounts.filter((a) => evaluateMailAccountGuardrail(a.mailAccount).eligible).length
   const dailyCapacity = activeSenders * campaign.dailyMailsPerAccount
   const totalSent = isWhatsApp ? campaign._count.sentWhatsAppMessages : campaign._count.sentMails
 
@@ -158,6 +163,11 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
             Channel: <strong style={{ color: isWhatsApp ? '#22c55e' : 'var(--accent)' }}>{campaign.channel}</strong>
           </div>
+          {campaign.guardrailReason ? (
+            <div style={{ marginTop: '10px', maxWidth: '720px', padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.22)', background: 'rgba(245,158,11,0.08)', color: 'var(--text-primary)', fontSize: '12px', lineHeight: 1.5 }}>
+              {campaign.guardrailReason}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -334,6 +344,9 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                       <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600 }}>{a.mailAccount.email}</div>
                       <div style={{ fontSize: '11px', color: a.mailAccount.warmupStatus === 'WARMED' ? 'var(--success)' : 'var(--warning)' }}>
                         {a.mailAccount.warmupStatus} {a.mailAccount.isActive ? '' : '(Inactive)'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Health {a.mailAccount.mailboxHealthScore}/100 ({a.mailAccount.mailboxHealthStatus}) | Sync {a.mailAccount.mailboxSyncStatus}
                       </div>
                     </div>
                   ))}

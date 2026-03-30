@@ -24,7 +24,7 @@ export async function POST(
 
     const updated = await prisma.campaign.update({
       where: { id: params.id },
-      data: { status: 'paused' },
+      data: { status: 'paused', guardrailReason: null },
     })
 
     return NextResponse.json({

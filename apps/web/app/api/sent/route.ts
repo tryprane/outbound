@@ -128,6 +128,18 @@ export async function GET(request: NextRequest) {
           }
         : {}),
     }
+    const complaintWhere = {
+      ...(campaignId ? { campaignId } : {}),
+      ...(mailAccountId ? { mailAccountId } : {}),
+      ...(from || to
+        ? {
+            createdAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+    }
 
     if (exportCsv) {
       const records = await prisma.sentMail.findMany({
@@ -145,11 +157,27 @@ export async function GET(request: NextRequest) {
         console.warn('[Sent CSV]', error)
       }
 
-      const header = 'id,campaign,sender,toEmail,subject,status,sentAt,openedAt,openCount,openStatus,errorMessage'
+      const complaintEvents = await prisma.complaintEvent.findMany({
+        where: {
+          sentMailId: { in: records.map((record) => record.id) },
+        },
+        select: {
+          sentMailId: true,
+          createdAt: true,
+        },
+      })
+      const complaintsByMailId = new Map<string, number>()
+      for (const complaint of complaintEvents) {
+        if (!complaint.sentMailId) continue
+        complaintsByMailId.set(complaint.sentMailId, (complaintsByMailId.get(complaint.sentMailId) || 0) + 1)
+      }
+
+      const header = 'id,campaign,sender,toEmail,subject,status,sentAt,openedAt,openCount,openStatus,complaints,errorMessage'
       const rows = records.map((r) => {
         const esc = (v: string | null | undefined) => `"${(v ?? '').replace(/"/g, '""')}"`
         const openState = openStates.get(r.id)
         const openStatus = openState?.openCount ? 'opened' : 'unopened'
+        const complaintCount = complaintsByMailId.get(r.id) || 0
         return [
           esc(r.id),
           esc(r.campaign.name),
@@ -161,6 +189,7 @@ export async function GET(request: NextRequest) {
           esc(openState?.openedAt || ''),
           esc(String(openState?.openCount ?? 0)),
           esc(openStatus),
+          esc(String(complaintCount)),
           esc(r.errorMessage),
         ].join(',')
       })
@@ -174,7 +203,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const [logs, total, sentCount, failedCount, bouncedCount, sentIds] = await Promise.all([
+    const [logs, total, sentCount, failedCount, bouncedCount, sentIds, complaintCount] = await Promise.all([
       prisma.sentMail.findMany({
         where,
         orderBy: { sentAt: 'desc' },
@@ -199,6 +228,7 @@ export async function GET(request: NextRequest) {
         where: { ...where, status: 'sent' },
         select: { id: true },
       }),
+      prisma.complaintEvent.count({ where: complaintWhere }),
     ])
 
     let openStates = new Map<string, { openedAt: string; lastOpenedAt: string; openCount: number }>()
@@ -210,13 +240,38 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       console.warn('[Sent GET]', error)
     }
+    const complaintEvents = await prisma.complaintEvent.findMany({
+      where: {
+        sentMailId: { in: logs.map((log) => log.id) },
+      },
+      select: {
+        sentMailId: true,
+        createdAt: true,
+      },
+    })
+    const complaintsByMailId = new Map<string, { count: number; firstAt: string }>()
+    for (const complaint of complaintEvents) {
+      if (!complaint.sentMailId) continue
+      const current = complaintsByMailId.get(complaint.sentMailId) || {
+        count: 0,
+        firstAt: complaint.createdAt.toISOString(),
+      }
+      current.count += 1
+      if (complaint.createdAt.toISOString() < current.firstAt) {
+        current.firstAt = complaint.createdAt.toISOString()
+      }
+      complaintsByMailId.set(complaint.sentMailId, current)
+    }
     const hydratedLogs = logs.map((log) => {
       const state = openStates.get(log.id)
+      const complaintState = complaintsByMailId.get(log.id)
       return {
         ...log,
         openedAt: state?.openedAt || null,
         lastOpenedAt: state?.lastOpenedAt || null,
         openCount: state?.openCount || 0,
+        complaintCount: complaintState?.count || 0,
+        complainedAt: complaintState?.firstAt || null,
       }
     })
     const openedCount = sentIds.reduce((count, record) => {
@@ -234,6 +289,7 @@ export async function GET(request: NextRequest) {
         sent: sentCount,
         failed: failedCount,
         bounced: bouncedCount,
+        complaints: complaintCount,
         opened: openedCount,
         unopened: Math.max(0, sentCount - openedCount),
         openRate: sentCount > 0 ? Math.round((openedCount / sentCount) * 100) : 0,
@@ -242,5 +298,100 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[Sent GET]', error)
     return NextResponse.json({ error: 'Failed to fetch sent logs' }, { status: 500 })
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json() as {
+      sentMailId?: string
+      action?: 'mark-bounced' | 'mark-complaint' | 'clear-complaints' | 'clear-complaint-log'
+      reason?: string
+    }
+    const sentMailId = body.sentMailId?.trim()
+    const action = body.action
+    if (!sentMailId || !action) {
+      return NextResponse.json({ error: 'sentMailId and action are required' }, { status: 400 })
+    }
+
+    const sentMail = await prisma.sentMail.findUnique({
+      where: { id: sentMailId },
+      select: {
+        id: true,
+        campaignId: true,
+        mailAccountId: true,
+        toEmail: true,
+        status: true,
+        errorMessage: true,
+      },
+    })
+    if (!sentMail) {
+      return NextResponse.json({ error: 'Sent mail not found' }, { status: 404 })
+    }
+
+    if (action === 'mark-bounced') {
+      const reason = body.reason?.trim() || 'Marked as bounced manually'
+      await prisma.$transaction([
+        prisma.sentMail.update({
+          where: { id: sentMail.id },
+          data: {
+            status: 'bounced',
+            errorMessage: reason,
+          },
+        }),
+        prisma.unsubscribeList.upsert({
+          where: { email: sentMail.toEmail.toLowerCase() },
+          create: { email: sentMail.toEmail.toLowerCase() },
+          update: {},
+        }),
+      ])
+      return NextResponse.json({ success: true, sentMailId, action })
+    }
+
+    if (action === 'mark-complaint') {
+      const reason = body.reason?.trim() || 'Recipient complaint'
+      await prisma.$transaction([
+        prisma.complaintEvent.upsert({
+          where: {
+            sentMailId_reason_source: {
+              sentMailId: sentMail.id,
+              reason,
+              source: 'manual',
+            },
+          },
+          create: {
+            sentMailId: sentMail.id,
+            campaignId: sentMail.campaignId,
+            mailAccountId: sentMail.mailAccountId,
+            email: sentMail.toEmail.toLowerCase(),
+            reason,
+            source: 'manual',
+          },
+          update: {},
+        }),
+        prisma.unsubscribeList.upsert({
+          where: { email: sentMail.toEmail.toLowerCase() },
+          create: { email: sentMail.toEmail.toLowerCase() },
+          update: {},
+        }),
+      ])
+      return NextResponse.json({ success: true, sentMailId, action })
+    }
+
+    await prisma.complaintEvent.deleteMany({
+      where: {
+        sentMailId: sentMail.id,
+        source: 'manual',
+      },
+    })
+    return NextResponse.json({
+      success: true,
+      sentMailId,
+      action,
+      message: 'Complaint log cleared. Suppression state is unchanged.',
+    })
+  } catch (error) {
+    console.error('[Sent PATCH]', error)
+    return NextResponse.json({ error: 'Failed to update sent mail status' }, { status: 500 })
   }
 }

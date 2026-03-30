@@ -3,6 +3,7 @@ import { getRedisConnection } from '~/lib/redis'
 import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { prisma } from '~/lib/prisma'
 import { MailJobData } from '~/queues/mailQueue'
+import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { sendViaGmail, sendViaZoho } from '~/lib/mailSenders'
 
 function appendTrackingPixel(html: string, trackingToken: string): string {
@@ -18,6 +19,52 @@ function appendTrackingPixel(html: string, trackingToken: string): string {
   return `${trimmed}${pixel}`
 }
 
+async function assertRecentSenderReputation(mailAccountId: string) {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const recentMail = await prisma.sentMail.findMany({
+    where: {
+      mailAccountId,
+      sentAt: { gte: since },
+    },
+    select: { status: true },
+    take: 50,
+  })
+
+  if (recentMail.length < 8) {
+    return
+  }
+
+  const failed = recentMail.filter((mail) => mail.status === 'failed').length
+  const bounced = recentMail.filter((mail) => mail.status === 'bounced').length
+  const bounceRate = bounced / recentMail.length
+  const failureRate = (failed + bounced) / recentMail.length
+
+  if (bounceRate >= 0.15 || failureRate >= 0.25) {
+    throw new Error(
+      `Mail account ${mailAccountId} is temporarily blocked by recent delivery reputation (${Math.round(bounceRate * 100)}% bounce, ${Math.round(failureRate * 100)}% failure over ${recentMail.length} sends).`
+    )
+  }
+}
+
+function classifyMailFailure(error: unknown): 'failed' | 'bounced' {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  const bounceSignals = [
+    'mailbox unavailable',
+    'user unknown',
+    'recipient rejected',
+    'invalid recipient',
+    'no such user',
+    'address rejected',
+    '550',
+    '551',
+    '552',
+    '553',
+    '554',
+    'bounce',
+  ]
+  return bounceSignals.some((signal) => message.includes(signal)) ? 'bounced' : 'failed'
+}
+
 async function processMailJob(job: Job<MailJobData>) {
   const { campaignId, csvRowId, mailAccountId, toEmail, subject, body, trackingToken } = job.data
   const renderedBody = appendTrackingPixel(body, trackingToken)
@@ -29,6 +76,16 @@ async function processMailJob(job: Job<MailJobData>) {
   if (!account.isActive || account.warmupStatus !== 'WARMED') {
     throw new Error(`Mail account ${mailAccountId} is not eligible for sending (requires ACTIVE + WARMED).`)
   }
+  if (account.mailboxHealthStatus === 'at_risk' || account.mailboxHealthStatus === 'paused') {
+    throw new Error(`Mail account ${mailAccountId} is blocked by mailbox health status ${account.mailboxHealthStatus}.`)
+  }
+  if (account.mailboxHealthScore > 0 && account.mailboxHealthScore < 55) {
+    throw new Error(`Mail account ${mailAccountId} is blocked because mailbox health score is too low (${account.mailboxHealthScore}).`)
+  }
+  if (account.mailboxSyncStatus === 'error') {
+    throw new Error(`Mail account ${mailAccountId} has mailbox sync errors and is temporarily blocked.`)
+  }
+  await assertRecentSenderReputation(mailAccountId)
 
   try {
     if (account.type === 'zoho') {
@@ -63,22 +120,40 @@ async function processMailJob(job: Job<MailJobData>) {
     ])
 
     console.log(`[MailProcessor] Sent to ${toEmail}`)
+    await mailboxSyncQueue.add(
+      'sync-mailbox' as never,
+      { mailAccountId, reason: 'post-send' } as never,
+      { jobId: `mailbox-post-send-${mailAccountId}-${Date.now()}` }
+    )
   } catch (err) {
     const maxAttempts = job.opts?.attempts ?? 3
     const isLastAttempt = (job.attemptsMade ?? 0) >= maxAttempts - 1
     if (isLastAttempt) {
-      await prisma.sentMail.create({
-        data: {
-          campaignId,
-          csvRowId,
-          mailAccountId,
-          toEmail,
-          subject,
-          body,
-          status: 'failed',
-          errorMessage: err instanceof Error ? err.message : String(err),
-        },
-      })
+      const status = classifyMailFailure(err)
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      await prisma.$transaction([
+        prisma.sentMail.create({
+          data: {
+            campaignId,
+            csvRowId,
+            mailAccountId,
+            toEmail,
+            subject,
+            body,
+            status,
+            errorMessage,
+          },
+        }),
+        ...(status === 'bounced'
+          ? [
+              prisma.unsubscribeList.upsert({
+                where: { email: toEmail.toLowerCase() },
+                create: { email: toEmail.toLowerCase() },
+                update: {},
+              }),
+            ]
+          : []),
+      ])
       console.error(`[MailProcessor] Final failure to ${toEmail}:`, err)
     }
     throw err

@@ -9,6 +9,7 @@ interface Campaign {
   name: string
   channel: 'EMAIL' | 'WHATSAPP'
   status: 'draft' | 'active' | 'paused' | 'completed' | 'failed'
+  guardrailReason: string | null
   createdAt: string
   csvFile: { originalName: string; rowCount: number }
   mailAccounts: { mailAccount: { displayName: string } }[]
@@ -110,6 +111,11 @@ export default function CampaignsPage() {
                     <div>{senderCount} sender{senderCount !== 1 ? 's' : ''}</div>
                     <div>Created {formatDate(camp.createdAt)}</div>
                   </div>
+                  {camp.guardrailReason ? (
+                    <div style={{ fontSize: '11px', color: 'var(--warning)', marginBottom: '12px', lineHeight: 1.5 }}>
+                      {camp.guardrailReason}
+                    </div>
+                  ) : null}
 
                   <div style={{ marginTop: 'auto' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>

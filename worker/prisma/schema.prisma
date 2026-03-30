@@ -17,6 +17,14 @@ enum WarmupStatus {
   PAUSED
 }
 
+enum MailboxFolderKind {
+  INBOX
+  SPAM
+  SENT
+  ARCHIVE
+  OTHER
+}
+
 enum CampaignChannel {
   EMAIL
   WHATSAPP
@@ -42,6 +50,15 @@ model MailAccount {
   accessToken  String?  // AES-256 encrypted
   refreshToken String?
   tokenExpiry  DateTime?
+  // Inbox sync / mailbox interaction fields
+  imapHost     String?
+  imapPort     Int?
+  imapSecure   Boolean  @default(true)
+  mailboxLastSyncedAt DateTime?
+  mailboxSyncStatus   String   @default("idle") // idle|syncing|error
+  mailboxSyncError    String?  @db.Text
+  mailboxHealthScore  Int      @default(0)
+  mailboxHealthStatus String   @default("cold") // cold|warming|healthy|at_risk|paused
   // Limits
   dailyLimit   Int      @default(40)
   sentToday    Int      @default(0)
@@ -63,6 +80,10 @@ model MailAccount {
   warmupRecipients WarmupRecipient[] @relation("RecipientMailbox")
   warmupSends WarmupMailLog[] @relation("SenderMailbox")
   warmupReceived WarmupMailLog[] @relation("RecipientMailboxSends")
+  mailboxThreads MailboxThread[]
+  mailboxMessages MailboxMessage[]
+  warmupHealthSnapshots WarmupHealthSnapshot[]
+  complaintEvents ComplaintEvent[]
 }
 
 model CsvFile {
@@ -105,6 +126,7 @@ model Campaign {
   type                String   // "indian" | "international"
   channel             CampaignChannel @default(EMAIL)
   status              String   @default("draft") // draft|active|paused|completed
+  guardrailReason     String?  @db.Text
   csvFileId           String
   prompt              String   @db.Text
   whatsappColumn      String?
@@ -120,6 +142,7 @@ model Campaign {
   whatsappAccounts CampaignWhatsAppAccount[]
   sentMails    SentMail[]
   sentWhatsAppMessages SentWhatsAppMessage[]
+  complaintEvents ComplaintEvent[]
 
   @@index([status])
 }
@@ -207,6 +230,7 @@ model SentMail {
   campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   csvRow      CsvRow      @relation(fields: [csvRowId], references: [id], onDelete: Cascade)
   mailAccount MailAccount @relation(fields: [mailAccountId], references: [id], onDelete: Cascade)
+  complaintEvents ComplaintEvent[]
 
   @@index([campaignId])
   @@index([mailAccountId])
@@ -219,6 +243,26 @@ model UnsubscribeList {
   createdAt DateTime @default(now())
 
   @@index([email])
+}
+
+model ComplaintEvent {
+  id            String   @id @default(cuid())
+  sentMailId    String?
+  campaignId    String?
+  mailAccountId String?
+  email         String
+  reason        String
+  source        String   @default("manual")
+  createdAt     DateTime @default(now())
+
+  sentMail    SentMail?    @relation(fields: [sentMailId], references: [id], onDelete: SetNull)
+  campaign    Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  mailAccount MailAccount? @relation(fields: [mailAccountId], references: [id], onDelete: SetNull)
+
+  @@unique([sentMailId, reason, source])
+  @@index([email, createdAt])
+  @@index([mailAccountId, createdAt])
+  @@index([campaignId, createdAt])
 }
 
 model WarmupRecipient {
@@ -257,6 +301,109 @@ model WarmupMailLog {
   @@index([senderMailAccountId, sentAt])
   @@index([recipientMailAccountId, sentAt])
   @@index([status, sentAt])
+}
+
+model MailboxThread {
+  id               String   @id @default(cuid())
+  mailAccountId    String
+  providerThreadId String
+  subject          String?
+  lastMessageAt    DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  mailAccount MailAccount      @relation(fields: [mailAccountId], references: [id], onDelete: Cascade)
+  messages    MailboxMessage[]
+
+  @@unique([mailAccountId, providerThreadId])
+  @@index([mailAccountId, lastMessageAt])
+}
+
+model MailboxMessage {
+  id                String            @id @default(cuid())
+  mailAccountId     String
+  mailboxThreadId   String?
+  providerMessageId String
+  providerThreadId  String?
+  folderKind        MailboxFolderKind @default(OTHER)
+  folderName        String?
+  direction         String            // inbound|outbound
+  fromEmail         String?
+  toEmail           String?
+  subject           String?
+  snippet           String?           @db.Text
+  sentAt            DateTime?
+  receivedAt        DateTime?
+  messageIdHeader   String?
+  inReplyToHeader   String?
+  referencesHeader  String?           @db.Text
+  isWarmup          Boolean           @default(false)
+  isRead            Boolean           @default(false)
+  isStarred         Boolean           @default(false)
+  isSpam            Boolean           @default(false)
+  openedAt          DateTime?
+  repliedAt         DateTime?
+  rescuedAt         DateTime?
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  mailAccount   MailAccount    @relation(fields: [mailAccountId], references: [id], onDelete: Cascade)
+  mailboxThread MailboxThread? @relation(fields: [mailboxThreadId], references: [id], onDelete: SetNull)
+
+  @@unique([mailAccountId, providerMessageId])
+  @@index([mailAccountId, receivedAt])
+  @@index([mailAccountId, folderKind, receivedAt])
+  @@index([mailAccountId, isWarmup, receivedAt])
+}
+
+model WarmupHealthSnapshot {
+  id            String   @id @default(cuid())
+  mailAccountId String
+  periodStart   DateTime
+  periodEnd     DateTime
+  healthScore   Int
+  healthStatus  String   // cold|warming|healthy|at_risk|paused
+  inboxRate     Float    @default(0)
+  spamRate      Float    @default(0)
+  readRate      Float    @default(0)
+  replyRate     Float    @default(0)
+  rescueRate    Float    @default(0)
+  sentCount     Int      @default(0)
+  receivedCount Int      @default(0)
+  rescuedCount  Int      @default(0)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  mailAccount MailAccount @relation(fields: [mailAccountId], references: [id], onDelete: Cascade)
+
+  @@index([mailAccountId, periodEnd])
+}
+
+model DomainHealthSnapshot {
+  id                  String   @id @default(cuid())
+  domain              String
+  providerHint        String
+  periodStart         DateTime
+  periodEnd           DateTime
+  mailboxCount        Int      @default(0)
+  healthyCount        Int      @default(0)
+  warmingCount        Int      @default(0)
+  atRiskCount         Int      @default(0)
+  pausedCount         Int      @default(0)
+  averageHealthScore  Int      @default(0)
+  activeCampaignCount Int      @default(0)
+  sentCount7d         Int      @default(0)
+  failedCount7d       Int      @default(0)
+  bouncedCount7d      Int      @default(0)
+  bounceRate7d        Float    @default(0)
+  failureRate7d       Float    @default(0)
+  complaintCount14d   Int      @default(0)
+  notes               String?  @db.Text
+  createdAt           DateTime @default(now())
+
+  @@unique([domain, providerHint, periodStart, periodEnd])
+  @@index([domain, providerHint, periodEnd])
 }
 
 // ─── NextAuth required models ───

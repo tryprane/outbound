@@ -44,3 +44,4 @@ dump.rdb
 pgpass.txt
 .baileys-sessions/
 *.pem
+deploy/github-config.txt

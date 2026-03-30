@@ -3,4 +3,6 @@ node_modules
 .git
 *.log
 uploads
-
+.env
+.env.*
+!.env.example

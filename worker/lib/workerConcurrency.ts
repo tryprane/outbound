@@ -1,6 +1,8 @@
 type WorkerLimitName =
   | 'campaign'
   | 'mail'
+  | 'mailboxInteraction'
+  | 'mailboxSync'
   | 'scrape'
   | 'whatsapp'
   | 'warmup'
@@ -17,6 +19,10 @@ export function getWorkerConcurrency(name: WorkerLimitName): number {
       return readPositiveInt(process.env.CAMPAIGN_WORKER_CONCURRENCY, 1)
     case 'mail':
       return readPositiveInt(process.env.MAIL_WORKER_CONCURRENCY, 1)
+    case 'mailboxInteraction':
+      return readPositiveInt(process.env.MAILBOX_INTERACTION_WORKER_CONCURRENCY, 1)
+    case 'mailboxSync':
+      return readPositiveInt(process.env.MAILBOX_SYNC_WORKER_CONCURRENCY, 1)
     case 'scrape':
       return readPositiveInt(process.env.SCRAPE_WORKER_CONCURRENCY, 1)
     case 'whatsapp':

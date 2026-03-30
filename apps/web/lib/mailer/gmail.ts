@@ -9,13 +9,14 @@ const oauth2Client = new google.auth.OAuth2(
 )
 
 /**
- * Generates the OAuth2 authorization URL for Gmail send scope.
+ * Generates the OAuth2 authorization URL for Gmail send + mailbox sync scopes.
  */
 export function getGmailAuthUrl(): string {
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: [
+      'https://www.googleapis.com/auth/gmail.modify',
       'https://www.googleapis.com/auth/gmail.send',
       'https://www.googleapis.com/auth/userinfo.email',
       'https://www.googleapis.com/auth/userinfo.profile',
@@ -64,6 +65,8 @@ export async function exchangeGmailCode(
       accessToken: encrypt(tokens.access_token),
       refreshToken: tokens.refresh_token, // store unencrypted; encrypt if desired
       tokenExpiry,
+      mailboxSyncStatus: 'idle',
+      mailboxHealthStatus: 'cold',
       dailyLimit: 40,
       warmupStatus: 'WARMING',
       warmupStage: 0,

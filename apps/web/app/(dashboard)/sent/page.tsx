@@ -15,6 +15,8 @@ interface MailLog {
   openedAt: string | null
   lastOpenedAt: string | null
   openCount: number
+  complaintCount: number
+  complainedAt: string | null
   errorMessage: string | null
 }
 
@@ -32,7 +34,7 @@ function formatDate(iso: string) {
 
 export default function GlobalSentMailPage() {
   const [logs, setLogs] = useState<MailLog[]>([])
-  const [counts, setCounts] = useState({ sent: 0, failed: 0, bounced: 0, opened: 0, unopened: 0, openRate: 0 })
+  const [counts, setCounts] = useState({ sent: 0, failed: 0, bounced: 0, complaints: 0, opened: 0, unopened: 0, openRate: 0 })
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
   
@@ -81,7 +83,7 @@ export default function GlobalSentMailPage() {
       .then(r => r.json())
       .then(data => {
         setLogs(data.logs || [])
-        setCounts(data.counts || { sent: 0, failed: 0, bounced: 0, opened: 0, unopened: 0, openRate: 0 })
+        setCounts(data.counts || { sent: 0, failed: 0, bounced: 0, complaints: 0, opened: 0, unopened: 0, openRate: 0 })
         setTotal(data.total || 0)
         setPages(data.pages || 1)
         setLoading(false)
@@ -92,6 +94,18 @@ export default function GlobalSentMailPage() {
   useEffect(() => {
     fetchLogs()
   }, [filters]) // eslint-disable-line
+
+  const handleLogAction = async (sentMailId: string, action: 'mark-bounced' | 'mark-complaint' | 'clear-complaint-log') => {
+    const res = await fetch('/api/sent', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sentMailId, action }),
+    })
+    if (!res.ok) {
+      return
+    }
+    fetchLogs()
+  }
 
   const handleExport = () => {
     const params = new URLSearchParams()
@@ -138,6 +152,10 @@ export default function GlobalSentMailPage() {
         <div className="glass-card" style={{ flex: 1, padding: '24px', borderTop: '3px solid var(--warning)' }}>
           <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--warning)' }}>{counts.bounced.toLocaleString()}</div>
           <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Bounced</div>
+        </div>
+        <div className="glass-card" style={{ flex: 1, padding: '24px', borderTop: '3px solid #f97316' }}>
+          <div style={{ fontSize: '32px', fontWeight: 700, color: '#f97316' }}>{counts.complaints.toLocaleString()}</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Complaints</div>
         </div>
       </div>
 
@@ -266,13 +284,14 @@ export default function GlobalSentMailPage() {
                 <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Date</th>
                 <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Status</th>
                 <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Open</th>
+                <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading logs...</td></tr>
+                <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading logs...</td></tr>
               ) : logs.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No emails found matching filters</td></tr>
+                <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No emails found matching filters</td></tr>
               ) : (
                 logs.map(log => (
                   <tr key={log.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }} className="hover:bg-[var(--bg-hover)]">
@@ -307,6 +326,31 @@ export default function GlobalSentMailPage() {
                           {log.openCount > 1 ? ` | ${log.openCount} views` : ''}
                         </div>
                       )}
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '150px' }}>
+                        {log.complaintCount > 0 ? (
+                          <div style={{ fontSize: '11px', color: '#f97316' }}>
+                            Complaint logged {log.complainedAt ? formatDate(log.complainedAt) : ''}
+                          </div>
+                        ) : null}
+                        {log.complaintCount > 0 ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Clearing the log does not remove suppression.
+                          </div>
+                        ) : null}
+                        <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => void handleLogAction(log.id, 'mark-complaint')}>
+                          Mark complaint
+                        </button>
+                        <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => void handleLogAction(log.id, 'mark-bounced')}>
+                          Mark bounced
+                        </button>
+                        {log.complaintCount > 0 ? (
+                          <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => void handleLogAction(log.id, 'clear-complaint-log')}>
+                            Clear complaint log
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))

@@ -22,6 +22,26 @@ interface MailAccount {
   warmupPausedAt: string | null
   lastMailSentAt: string | null
   tokenExpiry: string | null
+  imapHost: string | null
+  imapPort: number | null
+  imapSecure: boolean
+  mailboxLastSyncedAt: string | null
+  mailboxSyncStatus: 'idle' | 'syncing' | 'error'
+  mailboxSyncError: string | null
+  mailboxHealthScore: number
+  mailboxHealthStatus: string
+  warmupHealthSnapshots: Array<{
+    id: string
+    periodEnd: string
+    healthScore: number
+    healthStatus: string
+    inboxRate: number
+    spamRate: number
+    readRate: number
+    replyRate: number
+    rescueRate: number
+    notes?: string | null
+  }>
   warmupStats7d: {
     total: number
     sent: number
@@ -81,6 +101,77 @@ interface WarmupLog {
   recipientMailAccount: { email: string; displayName: string } | null
 }
 
+interface DomainDiagnostics {
+  domain: string
+  providerHint: 'gmail' | 'zoho' | 'unknown'
+  checkedAt: string
+  mxHosts: string[]
+  mxIps: string[]
+  spf: {
+    found: boolean
+    valid: boolean
+    record: string | null
+    providerAligned: boolean
+  }
+  dmarc: {
+    found: boolean
+    valid: boolean
+    record: string | null
+    policy: string | null
+  }
+  dkim: {
+    foundSelectors: string[]
+    checkedSelectors: string[]
+    providerAligned: boolean
+  }
+  blacklist: {
+    checked: boolean
+    listedOn: string[]
+    checkedZones: string[]
+  }
+  riskScore: number
+  severity: 'ok' | 'warning' | 'critical'
+  recommendedAction: string
+  warnings: string[]
+}
+
+interface DomainHealthSummary {
+  domain: string
+  providerHint: 'gmail' | 'zoho' | 'unknown'
+  mailboxCount: number
+  healthyCount: number
+  warmingCount: number
+  atRiskCount: number
+  pausedCount: number
+  averageHealthScore: number
+  activeCampaignCount: number
+  sentCount7d: number
+  failedCount7d: number
+  bouncedCount7d: number
+  bounceRate7d: number
+  failureRate7d: number
+  complaintCount14d: number
+  healthStatus: 'healthy' | 'warming' | 'at_risk' | 'paused'
+  notes: string
+}
+
+interface DomainHealthSnapshot {
+  id: string
+  domain: string
+  providerHint: 'gmail' | 'zoho' | 'unknown'
+  periodStart: string
+  periodEnd: string
+  mailboxCount: number
+  healthyCount: number
+  warmingCount: number
+  atRiskCount: number
+  pausedCount: number
+  averageHealthScore: number
+  activeCampaignCount: number
+  notes: string | null
+  createdAt: string
+}
+
 type ActiveTab = 'accounts' | 'warmup' | 'add-zoho' | 'add-gmail' | 'add-whatsapp'
 
 function MailAccountsPageContent() {
@@ -90,6 +181,9 @@ function MailAccountsPageContent() {
   const [warmupRecipients, setWarmupRecipients] = useState<WarmupRecipient[]>([])
   const [warmupOverview, setWarmupOverview] = useState<WarmupOverview | null>(null)
   const [warmupLogs, setWarmupLogs] = useState<WarmupLog[]>([])
+  const [domainDiagnostics, setDomainDiagnostics] = useState<DomainDiagnostics[]>([])
+  const [domainHealth, setDomainHealth] = useState<DomainHealthSummary[]>([])
+  const [domainHealthHistory, setDomainHealthHistory] = useState<DomainHealthSnapshot[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ActiveTab>('accounts')
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
@@ -98,6 +192,7 @@ function MailAccountsPageContent() {
   const [waSaving, setWaSaving] = useState(false)
   const [recipientForm, setRecipientForm] = useState({ email: '', name: '', isActive: true })
   const [recipientSaving, setRecipientSaving] = useState(false)
+  const [bulkRecipients, setBulkRecipients] = useState('')
 
   useEffect(() => {
     const success = searchParams.get('success')
@@ -113,18 +208,29 @@ function MailAccountsPageContent() {
 
   const loadAll = useCallback(async (background = false) => {
     if (!background) setLoading(true)
-    const [mailRes, waRes, recipientRes, overviewRes, logsRes] = await Promise.all([
+    const [mailRes, waRes, recipientRes, overviewRes, logsRes, domainHealthRes] = await Promise.all([
       fetch('/api/mail-accounts').then((r) => r.json()).catch(() => []),
       fetch('/api/mail-accounts?resource=whatsapp-accounts').then((r) => r.json()).catch(() => []),
       fetch('/api/mail-accounts?resource=warmup-recipients').then((r) => r.json()).catch(() => []),
       fetch('/api/mail-accounts?resource=warmup-overview').then((r) => r.json()).catch(() => null),
       fetch('/api/mail-accounts?resource=warmup-logs&limit=25').then((r) => r.json()).catch(() => []),
+      fetch('/api/mail-accounts?resource=domain-health').then((r) => r.json()).catch(() => ({ domains: [], history: [] })),
     ])
     setAccounts(Array.isArray(mailRes) ? mailRes : [])
     setWhatsappAccounts(Array.isArray(waRes) ? waRes : [])
     setWarmupRecipients(Array.isArray(recipientRes) ? recipientRes : [])
     setWarmupOverview(overviewRes && typeof overviewRes === 'object' ? (overviewRes as WarmupOverview) : null)
     setWarmupLogs(Array.isArray(logsRes) ? logsRes : [])
+    setDomainHealth(
+      domainHealthRes && Array.isArray(domainHealthRes.domains)
+        ? (domainHealthRes.domains as DomainHealthSummary[])
+        : []
+    )
+    setDomainHealthHistory(
+      domainHealthRes && Array.isArray(domainHealthRes.history)
+        ? (domainHealthRes.history as DomainHealthSnapshot[])
+        : []
+    )
     if (!background) setLoading(false)
   }, [])
 
@@ -133,6 +239,22 @@ function MailAccountsPageContent() {
     const timer = setInterval(() => void loadAll(true), 3_000)
     return () => clearInterval(timer)
   }, [loadAll])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadDiagnostics = async () => {
+      const res = await fetch('/api/mail-accounts?resource=domain-diagnostics').then((r) => r.json()).catch(() => [])
+      if (!cancelled) {
+        setDomainDiagnostics(Array.isArray(res) ? res : [])
+      }
+    }
+    void loadDiagnostics()
+    const timer = setInterval(() => void loadDiagnostics(), 15 * 60_000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [])
 
   const handleToggleMailActive = async (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => {
     if (!current && warmupStatus !== 'WARMED') {
@@ -222,6 +344,32 @@ function MailAccountsPageContent() {
     void loadAll()
   }
 
+  const handleBulkWarmupRecipients = async () => {
+    if (!bulkRecipients.trim()) {
+      showToast('error', 'Paste at least one email address')
+      return
+    }
+    setRecipientSaving(true)
+    const res = await fetch('/api/mail-accounts?resource=warmup-recipients-bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entries: bulkRecipients,
+        isActive: recipientForm.isActive,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      showToast('error', data.error || 'Failed to import recipients')
+      setRecipientSaving(false)
+      return
+    }
+    showToast('success', `Imported ${data.count || 0} warmup recipients`)
+    setBulkRecipients('')
+    setRecipientSaving(false)
+    void loadAll()
+  }
+
   const handleDeleteWarmupRecipient = async (id: string, email: string) => {
     if (!confirm(`Remove warmup recipient "${email}"?`)) return
     const res = await fetch(`/api/mail-accounts?resource=warmup-recipients&id=${id}`, { method: 'DELETE' })
@@ -246,6 +394,21 @@ function MailAccountsPageContent() {
       return
     }
     showToast('success', 'Warmup tick queued. Watch the logs and sent count.')
+    void loadAll()
+  }
+
+  const handleRunMailboxSyncNow = async (id: string) => {
+    const res = await fetch('/api/mail-accounts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, runMailboxSyncNow: true }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Failed to queue mailbox sync' }))
+      showToast('error', data.error || 'Failed to queue mailbox sync')
+      return
+    }
+    showToast('success', 'Mailbox sync queued')
     void loadAll()
   }
 
@@ -344,6 +507,9 @@ function MailAccountsPageContent() {
   const activeMailboxPool = accounts.filter((a) => a.isActive).length
   const recipientPoolHealthy = activeCustomRecipients > 0 || activeMailboxPool > 1
   const pausedGmailAccounts = accounts.filter((a) => a.type === 'gmail' && a.warmupStatus === 'PAUSED')
+  const domainsWithWarnings = domainDiagnostics.filter((item) => item.warnings.length > 0)
+  const criticalDomains = domainDiagnostics.filter((item) => item.severity === 'critical')
+  const domainsAtRisk = domainHealth.filter((item) => item.healthStatus === 'at_risk' || item.healthStatus === 'paused')
   const gmailReconnectRequired = (account: MailAccount) =>
     account.type === 'gmail' && account.warmupStatus === 'PAUSED'
   const tabs: { key: ActiveTab; label: string }[] = [
@@ -394,7 +560,116 @@ function MailAccountsPageContent() {
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Active warmup recipients</div>
         </div>
+        <div className="glass-card" style={{ padding: '14px' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: criticalDomains.length > 0 ? 'var(--error)' : domainsWithWarnings.length > 0 ? 'var(--warning)' : 'var(--success)' }}>
+            {criticalDomains.length}
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Critical domain reputation issues</div>
+        </div>
+        <div className="glass-card" style={{ padding: '14px' }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: domainsAtRisk.length > 0 ? 'var(--error)' : 'var(--success)' }}>
+            {domainsAtRisk.length}
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Domains at operational risk</div>
+        </div>
       </div>
+
+      {domainHealth.length > 0 ? (
+        <div className="glass-card" style={{ padding: '16px', marginBottom: '18px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
+            Domain Health
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {domainHealth.map((item) => (
+              <div key={`${item.domain}-${item.providerHint}`} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--bg-secondary)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {item.domain} ({item.providerHint})
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Health {item.averageHealthScore}/100 | Mailboxes {item.mailboxCount} | Active campaigns {item.activeCampaignCount}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Healthy {item.healthyCount} | Warming {item.warmingCount} | At risk {item.atRiskCount} | Paused {item.pausedCount}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      7d sent {item.sentCount7d} | Bounce {(item.bounceRate7d * 100).toFixed(0)}% | Failure {(item.failureRate7d * 100).toFixed(0)}% | Complaints {item.complaintCount14d}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      {item.notes}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '11px', color: item.healthStatus === 'healthy' ? 'var(--success)' : item.healthStatus === 'warming' ? 'var(--warning)' : 'var(--error)', fontWeight: 700 }}>
+                    {item.healthStatus.toUpperCase()}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {domainHealthHistory.length > 0 ? (
+            <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                Recent domain snapshots
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {domainHealthHistory.slice(0, 6).map((snapshot) => (
+                  <div key={snapshot.id} style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    {snapshot.domain} ({snapshot.providerHint}) | {new Date(snapshot.periodEnd).toLocaleDateString()} | Score {snapshot.averageHealthScore} | Healthy {snapshot.healthyCount}/{snapshot.mailboxCount} | Active campaigns {snapshot.activeCampaignCount}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {domainDiagnostics.length > 0 ? (
+        <div className="glass-card" style={{ padding: '16px', marginBottom: '18px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
+            Domain Safety Checks
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {domainDiagnostics.map((item) => (
+              <div key={`${item.domain}-${item.providerHint}`} style={{ padding: '12px', border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--bg-secondary)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {item.domain} ({item.providerHint})
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      SPF {item.spf.providerAligned ? 'OK' : 'WARN'} | DKIM {item.dkim.providerAligned ? 'OK' : 'WARN'} | DMARC {item.dmarc.found ? (item.dmarc.policy || 'present') : 'missing'} | MX {item.mxHosts.length > 0 ? 'OK' : 'missing'} | Score {item.riskScore}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Checked {new Date(item.checkedAt).toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '11px', color: item.severity === 'critical' ? 'var(--error)' : item.severity === 'warning' ? 'var(--warning)' : 'var(--success)', marginTop: '4px', fontWeight: 700 }}>
+                      {item.severity.toUpperCase()}
+                    </div>
+                    {item.blacklist.listedOn.length > 0 ? (
+                      <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '6px' }}>
+                        MX blacklist: {item.blacklist.listedOn.join(', ')}
+                      </div>
+                    ) : null}
+                    {item.warnings.length > 0 ? (
+                      <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '6px' }}>
+                        {item.warnings.join(' | ')}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '11px', color: 'var(--success)', marginTop: '6px' }}>
+                        Domain auth checks look aligned for {item.providerHint}.
+                      </div>
+                    )}
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                      {item.recommendedAction}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {pausedGmailAccounts.length > 0 ? (
         <div
@@ -573,6 +848,26 @@ function MailAccountsPageContent() {
                 {recipientSaving ? 'Saving...' : 'Add Recipient'}
               </button>
             </div>
+            <div style={{ marginBottom: '14px' }}>
+              <textarea
+                placeholder="Paste emails separated by commas, spaces, or new lines"
+                value={bulkRecipients}
+                onChange={(e) => setBulkRecipients(e.target.value)}
+                style={{ width: '100%', minHeight: '96px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', resize: 'vertical' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginTop: '10px', flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Bulk import warmup recipients in one shot.
+                </div>
+                <button
+                  className="btn-ghost"
+                  disabled={recipientSaving}
+                  onClick={() => void handleBulkWarmupRecipients()}
+                >
+                  {recipientSaving ? 'Importing...' : 'Import Bulk Recipients'}
+                </button>
+              </div>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                 <input
@@ -728,6 +1023,27 @@ function MailAccountsPageContent() {
                           Last mail: {account.lastMailSentAt ? new Date(account.lastMailSentAt).toLocaleString() : 'Never'}
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Mailbox sync: {account.mailboxSyncStatus.toUpperCase()} | Last sync: {account.mailboxLastSyncedAt ? new Date(account.mailboxLastSyncedAt).toLocaleString() : 'Never'}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Mailbox health: {account.mailboxHealthScore}/100 ({account.mailboxHealthStatus})
+                        </div>
+                        {account.warmupHealthSnapshots[0] ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Inbox {(account.warmupHealthSnapshots[0].inboxRate * 100).toFixed(0)}% | Spam {(account.warmupHealthSnapshots[0].spamRate * 100).toFixed(0)}% | Read {(account.warmupHealthSnapshots[0].readRate * 100).toFixed(0)}% | Reply {(account.warmupHealthSnapshots[0].replyRate * 100).toFixed(0)}%
+                          </div>
+                        ) : null}
+                        {account.warmupHealthSnapshots[0]?.notes ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', maxWidth: '680px' }}>
+                            {account.warmupHealthSnapshots[0].notes}
+                          </div>
+                        ) : null}
+                        {account.mailboxSyncError ? (
+                          <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px', maxWidth: '680px' }}>
+                            Sync error: {account.mailboxSyncError}
+                          </div>
+                        ) : null}
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                           Started: {account.warmupStartedAt ? new Date(account.warmupStartedAt).toLocaleString() : 'Not started'}
                           {' '}| Completed: {account.warmupCompletedAt ? new Date(account.warmupCompletedAt).toLocaleString() : 'Not completed'}
                           {' '}| Paused: {account.warmupPausedAt ? new Date(account.warmupPausedAt).toLocaleString() : 'Not paused'}
@@ -781,6 +1097,9 @@ function MailAccountsPageContent() {
                           title={account.warmupStatus !== 'WARMING' ? 'Set status to WARMING first' : account.warmupAutoEnabled ? 'Queue a warmup send now' : 'Turn Auto ON first'}
                         >
                           Run warmup tick
+                        </button>
+                        <button className="btn-ghost" onClick={() => void handleRunMailboxSyncNow(account.id)}>
+                          Sync mailbox
                         </button>
                         <button className="btn-ghost" onClick={() => void handleToggleMailActive(account.id, account.isActive, account.warmupStatus)}>
                           {account.isActive ? 'Disable' : 'Enable'}

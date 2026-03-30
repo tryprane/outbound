@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { loadEmailOpenStates } from '@/lib/emailOpenTracking'
+import { evaluateMailAccountGuardrail } from '@/lib/campaignGuardrails'
 
 function nextMidnight(from: Date): Date {
   const d = new Date(from)
@@ -99,6 +100,7 @@ export async function GET(
               select: {
                 id: true, email: true, type: true, displayName: true,
                 dailyLimit: true, sentToday: true, isActive: true, lastMailSentAt: true, warmupStatus: true,
+                mailboxHealthStatus: true, mailboxHealthScore: true, mailboxSyncStatus: true,
               },
             },
           },
@@ -158,7 +160,7 @@ export async function GET(
             })
         : campaign.mailAccounts
             .map((assignment) => assignment.mailAccount)
-            .filter((account) => account.isActive && account.warmupStatus === 'WARMED')
+            .filter((account) => evaluateMailAccountGuardrail(account).eligible)
             .map((account) => {
               const intervalMs = Math.max(60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, campaign.dailyMailsPerAccount)))
               const nextByInterval = account.lastMailSentAt

@@ -1,12 +1,16 @@
 import type { Worker } from 'bullmq'
 import { campaignQueue } from '~/queues/campaignQueue'
 import { mailQueue } from '~/queues/mailQueue'
+import { mailboxInteractionQueue } from '~/queues/mailboxInteractionQueue'
+import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { scrapeQueue } from '~/queues/scrapeQueue'
 import { warmupQueue } from '~/queues/warmupQueue'
 import { whatsappQueue } from '~/queues/whatsappQueue'
 import { whatsappSessionQueue } from '~/queues/whatsappSessionQueue'
 import { startCampaignWorker } from '~/processors/campaignProcessor'
 import { startMailWorker } from '~/processors/mailProcessor'
+import { startMailboxInteractionWorker } from '~/processors/mailboxInteractionProcessor'
+import { startMailboxSyncWorker } from '~/processors/mailboxSyncProcessor'
 import { startScrapeWorker } from '~/processors/scrapeProcessor'
 import { startWarmupWorker } from '~/processors/warmupProcessor'
 import { startWhatsAppWorker } from '~/processors/whatsappProcessor'
@@ -15,6 +19,8 @@ import { startWhatsAppSessionWorker } from '~/processors/whatsappSessionProcesso
 type QueueName =
   | 'campaign'
   | 'mail'
+  | 'mailboxInteraction'
+  | 'mailboxSync'
   | 'scrape'
   | 'warmup'
   | 'whatsapp'
@@ -41,6 +47,8 @@ const DEFAULT_IDLE_CLOSE_MS = Number.parseInt(process.env.WORKER_IDLE_CLOSE_MS ?
 const states: Record<QueueName, ManagedWorker> = {
   campaign: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   mail: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
+  mailboxInteraction: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
+  mailboxSync: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   scrape: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   warmup: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   whatsapp: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
@@ -61,6 +69,20 @@ const queues: QueueState[] = [
     idleCloseMs: DEFAULT_IDLE_CLOSE_MS,
     getCounts: async () => mailQueue.getJobCounts('waiting', 'active', 'delayed'),
     start: startMailWorker,
+  },
+  {
+    queueName: 'mailboxInteraction',
+    priority: 88,
+    idleCloseMs: DEFAULT_IDLE_CLOSE_MS,
+    getCounts: async () => mailboxInteractionQueue.getJobCounts('waiting', 'active', 'delayed'),
+    start: startMailboxInteractionWorker,
+  },
+  {
+    queueName: 'mailboxSync',
+    priority: 85,
+    idleCloseMs: DEFAULT_IDLE_CLOSE_MS,
+    getCounts: async () => mailboxSyncQueue.getJobCounts('waiting', 'active', 'delayed'),
+    start: startMailboxSyncWorker,
   },
   {
     queueName: 'whatsapp',
@@ -206,6 +228,8 @@ export async function stopWorkerSupervisor() {
   await Promise.all([
     stopWorker('campaign'),
     stopWorker('mail'),
+    stopWorker('mailboxInteraction'),
+    stopWorker('mailboxSync'),
     stopWorker('whatsapp'),
     stopWorker('warmup'),
     stopWorker('scrape'),

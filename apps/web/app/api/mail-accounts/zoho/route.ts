@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { encrypt } from '@/lib/encryption'
 import { testZohoConnection } from '@/lib/mailer/zoho'
+import { getDomainDiagnostics } from '@/lib/domainDiagnostics'
+
+function inferZohoImapHost(smtpHost: string): string {
+  const normalized = smtpHost.toLowerCase()
+  if (normalized.includes('.zoho.in')) return 'imap.zoho.in'
+  if (normalized.includes('.zoho.eu')) return 'imap.zoho.eu'
+  return 'imap.zoho.com'
+}
 
 // POST /api/mail-accounts/zoho — Save a Zoho SMTP account
 export async function POST(request: NextRequest) {
@@ -11,12 +19,15 @@ export async function POST(request: NextRequest) {
       email: string
       smtpHost: string
       smtpPort: number
+      imapHost?: string
+      imapPort?: number
+      imapSecure?: boolean
       password: string
       dailyLimit?: number
       testOnly?: boolean
     }
 
-    const { displayName, email, smtpHost, smtpPort, password, dailyLimit, testOnly } = body
+    const { displayName, email, smtpHost, smtpPort, imapHost, imapPort, imapSecure, password, dailyLimit, testOnly } = body
 
     // Validate required fields
     if (!email || !smtpHost || !smtpPort || !password) {
@@ -43,14 +54,17 @@ export async function POST(request: NextRequest) {
     // Upsert the account (allow updating existing Zoho accounts)
     const account = await prisma.mailAccount.upsert({
       where: { email },
-      create: {
-        type: 'zoho',
-        email,
-        displayName: displayName || email,
-        smtpHost,
-        smtpPort,
-        smtpPassword: encryptedPassword,
-        dailyLimit: dailyLimit ?? 40,
+        create: {
+          type: 'zoho',
+          email,
+          displayName: displayName || email,
+          smtpHost,
+          smtpPort,
+          imapHost: imapHost || inferZohoImapHost(smtpHost),
+          imapPort: imapPort ?? 993,
+          imapSecure: imapSecure ?? true,
+          smtpPassword: encryptedPassword,
+          dailyLimit: dailyLimit ?? 40,
         warmupStatus: 'WARMING',
         warmupStage: 0,
         warmupStartedAt: new Date(),
@@ -58,12 +72,15 @@ export async function POST(request: NextRequest) {
         warmupAutoEnabled: true,
         isActive: false,
       },
-      update: {
-        displayName: displayName || email,
-        smtpHost,
-        smtpPort,
-        smtpPassword: encryptedPassword,
-        dailyLimit: dailyLimit ?? 40,
+        update: {
+          displayName: displayName || email,
+          smtpHost,
+          smtpPort,
+          imapHost: imapHost || inferZohoImapHost(smtpHost),
+          imapPort: imapPort ?? 993,
+          imapSecure: imapSecure ?? true,
+          smtpPassword: encryptedPassword,
+          dailyLimit: dailyLimit ?? 40,
       },
     })
 
@@ -84,11 +101,15 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    const domain = email.split('@')[1]?.toLowerCase()
+    const diagnostics = domain ? await getDomainDiagnostics(domain, 'zoho') : null
+
     return NextResponse.json({
       success: true,
       id: account.id,
       email: account.email,
       message: 'Zoho account connected successfully!',
+      diagnostics,
     })
   } catch (error) {
     console.error('[Zoho Account]', error)

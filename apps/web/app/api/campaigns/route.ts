@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { evaluateMailAccountGuardrail } from '@/lib/campaignGuardrails'
+import { getDomainDiagnostics, getDomainDiagnosticsBlockers } from '@/lib/domainDiagnostics'
 
 const CreateCampaignSchema = z.object({
   name: z.string().min(1, 'Campaign name is required'),
@@ -79,18 +81,51 @@ export async function POST(request: NextRequest) {
       }
       const selectedAccounts = await prisma.mailAccount.findMany({
         where: { id: { in: mailAccountIds } },
-        select: { id: true, email: true, isActive: true, warmupStatus: true },
+        select: {
+          id: true,
+          email: true,
+          type: true,
+          isActive: true,
+          warmupStatus: true,
+          mailboxHealthStatus: true,
+          mailboxHealthScore: true,
+          mailboxSyncStatus: true,
+        },
       })
       if (selectedAccounts.length !== mailAccountIds.length) {
         return NextResponse.json({ error: 'One or more selected mail accounts were not found.' }, { status: 400 })
       }
-      const nonEligible = selectedAccounts.filter(
-        (acc) => !acc.isActive || acc.warmupStatus !== 'WARMED'
-      )
+      const nonEligible = selectedAccounts
+        .map((acc) => ({ account: acc, result: evaluateMailAccountGuardrail(acc) }))
+        .filter((entry) => !entry.result.eligible)
       if (nonEligible.length > 0) {
-        const emails = nonEligible.map((a) => a.email).join(', ')
+        const emails = nonEligible
+          .map(({ account, result }) => `${account.email} (${result.reason})`)
+          .join(', ')
         return NextResponse.json(
-          { error: `Only ACTIVE + WARMED mailboxes can be used. Fix: ${emails}` },
+          { error: `Only healthy, synced, ACTIVE + WARMED mailboxes can be used. Fix: ${emails}` },
+          { status: 400 }
+        )
+      }
+      const diagnostics = await Promise.all(
+        selectedAccounts.map(async (account) => {
+          const domain = account.email.split('@')[1]?.toLowerCase()
+          if (!domain) return null
+          const providerHint = account.type === 'gmail' || account.type === 'zoho' ? account.type : 'unknown'
+          const result = await getDomainDiagnostics(domain, providerHint)
+          return { email: account.email, result }
+        })
+      )
+      const criticalDomains = diagnostics
+        .filter((item): item is { email: string; result: Awaited<ReturnType<typeof getDomainDiagnostics>> } => Boolean(item))
+        .map(({ email, result }) => ({ email, blockers: getDomainDiagnosticsBlockers(result) }))
+        .filter((item) => item.blockers.length > 0)
+      if (criticalDomains.length > 0) {
+        const message = criticalDomains
+          .map((item) => `${item.email}: ${item.blockers.join(', ')}`)
+          .join(' | ')
+        return NextResponse.json(
+          { error: `Sender domain safety checks failed. Fix: ${message}` },
           { status: 400 }
         )
       }

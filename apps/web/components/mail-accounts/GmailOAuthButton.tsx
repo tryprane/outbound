@@ -44,7 +44,7 @@ export function GmailOAuthButton({ onConnected }: GmailOAuthButtonProps) {
           Connect Gmail Account
         </div>
         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-          Grants only <strong style={{ color: 'var(--text-secondary)' }}>gmail.send</strong> scope — we cannot read your emails
+          Grants <strong style={{ color: 'var(--text-secondary)' }}>gmail.send</strong> and <strong style={{ color: 'var(--text-secondary)' }}>gmail.modify</strong> so warmup sending and mailbox sync can both work
         </div>
       </div>
 

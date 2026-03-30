@@ -29,6 +29,16 @@ Required:
 - `GHCR_USERNAME`
 - `GHCR_TOKEN`
 
+You can also upload the full set from the terminal:
+
+1. Copy [github-config.template.txt](C:/Users/ghans/OneDrive/Desktop/outbound/deploy/github-config.template.txt) to `deploy/github-config.txt`
+2. Fill in the values
+3. Run:
+   ```powershell
+   gh auth login
+   powershell -ExecutionPolicy Bypass -File .\scripts\set-github-config.ps1
+   ```
+
 Optional tuning overrides:
 
 - `WORKER_GLOBAL_ACTIVE_LIMIT`
