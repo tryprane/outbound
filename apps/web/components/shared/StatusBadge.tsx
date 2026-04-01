@@ -1,4 +1,4 @@
-type StatusType = 'active' | 'draft' | 'paused' | 'completed' | 'failed' | 'sent' | 'bounced' | 'pending' | 'running' | 'done' | 'opened' | 'unopened'
+type StatusType = 'active' | 'draft' | 'paused' | 'completed' | 'failed' | 'sent' | 'bounced' | 'pending' | 'running' | 'done' | 'opened' | 'unopened' | 'gmail' | 'zoho' | 'connected' | 'error'
 
 interface StatusBadgeProps {
   status: StatusType | string
@@ -17,6 +17,10 @@ const statusConfig: Record<string, { label: string; className: string; dot?: boo
   done:      { label: 'Done',      className: 'badge badge-completed' },
   opened:    { label: 'Opened',    className: 'badge badge-active',    dot: true },
   unopened:  { label: 'Not Opened', className: 'badge badge-draft' },
+  gmail:     { label: 'Gmail',     className: 'badge badge-completed' },
+  zoho:      { label: 'Zoho',      className: 'badge badge-paused' },
+  connected: { label: 'Connected', className: 'badge badge-active', dot: true },
+  error:     { label: 'Error',     className: 'badge badge-failed', dot: true },
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {
