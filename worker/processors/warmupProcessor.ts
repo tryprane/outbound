@@ -5,8 +5,10 @@ import { prisma } from '~/lib/prisma'
 import { WarmupJobData } from '~/queues/warmupQueue'
 import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { sendViaGmail, sendViaZoho } from '~/lib/mailSenders'
+import { generateWarmupMailWithGemini } from '~/lib/geminiWarmup'
 
 const REPLY_PROBABILITY = 0.35
+const GEMINI_WARMUP_PROBABILITY = 0.2
 const warmupDeps = {
   prisma,
   mailboxSyncQueue,
@@ -125,6 +127,26 @@ function buildWarmupMail(stage: number, senderName: string, recipientName: strin
     subject,
     body: `<p>${opening}</p><p>${middle}</p>${closing}`,
   }
+}
+
+async function buildOutboundWarmupMail(stage: number, senderName: string, recipientName: string) {
+  const fallbackMail = buildWarmupMail(stage, senderName, recipientName)
+  if (warmupDeps.random() >= GEMINI_WARMUP_PROBABILITY) {
+    return fallbackMail
+  }
+
+  const geminiMail = await generateWarmupMailWithGemini({
+    senderName,
+    recipientName,
+    stage,
+    direction: 'outbound',
+  })
+
+  if (!geminiMail) {
+    return fallbackMail
+  }
+
+  return geminiMail
 }
 
 function buildReplyMail(senderDisplayName: string, recipientDisplayName: string) {
@@ -338,7 +360,11 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
     return
   }
 
-  const warmupMail = buildWarmupMail(sender.warmupStage, sender.displayName, getFirstName(recipient.recipientDisplayName))
+  const warmupMail = await buildOutboundWarmupMail(
+    sender.warmupStage,
+    sender.displayName,
+    getFirstName(recipient.recipientDisplayName)
+  )
   try {
     await sendFromAccount(sender.id, recipient.email, warmupMail.subject, warmupMail.body)
     await warmupDeps.prisma.$transaction([
