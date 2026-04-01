@@ -8,6 +8,7 @@ import { extractEmailDomain, providerHintFromType } from '@/lib/campaignGuardrai
 
 const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
 type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
+const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox'
 
 function recommendedLimitFromStage(stage: number): number {
   const idx = Math.max(0, Math.min(stage, WARMUP_LIMIT_PLAN.length - 1))
@@ -500,8 +501,12 @@ export async function GET(request: NextRequest) {
     const withWarmupStats = accounts.map((account) => {
       const stats = statsByAccount.get(account.id) || { total: 0, sent: 0, failed: 0, bounced: 0 }
       const successRate = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100) : 0
+      const zohoImapEnabled = account.type !== 'zoho' || account.mailboxSyncError !== ZOHO_IMAP_DISABLED_MESSAGE
       return {
         ...account,
+        zohoImapEnabled,
+        mailboxSyncError:
+          account.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE ? null : account.mailboxSyncError,
         warmupStats7d: {
           ...stats,
           successRate,
@@ -700,10 +705,11 @@ export async function PATCH(request: NextRequest) {
       warmupStatus?: WarmupStatus
       warmupStage?: number
       warmupAutoEnabled?: boolean
+      zohoImapEnabled?: boolean
       runWarmupNow?: boolean
       runMailboxSyncNow?: boolean
     }
-    const { id, isActive, dailyLimit, warmupStatus, warmupStage, warmupAutoEnabled, runWarmupNow, runMailboxSyncNow } = body
+    const { id, isActive, dailyLimit, warmupStatus, warmupStage, warmupAutoEnabled, zohoImapEnabled, runWarmupNow, runMailboxSyncNow } = body
 
     const account = await prisma.mailAccount.findUnique({ where: { id } })
     if (!account) {
@@ -736,6 +742,11 @@ export async function PATCH(request: NextRequest) {
       ...(dailyLimit !== undefined ? { dailyLimit: Math.max(1, dailyLimit) } : {}),
       ...(isActive !== undefined ? { isActive } : {}),
       ...(warmupAutoEnabled !== undefined ? { warmupAutoEnabled } : {}),
+    }
+
+    if (zohoImapEnabled !== undefined && account.type === 'zoho') {
+      data.mailboxSyncStatus = 'idle'
+      data.mailboxSyncError = zohoImapEnabled ? null : ZOHO_IMAP_DISABLED_MESSAGE
     }
 
     if (warmupStatus) {
@@ -800,6 +811,12 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (runMailboxSyncNow) {
+      if (updated.type === 'zoho' && updated.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE) {
+        return NextResponse.json(
+          { error: 'Zoho IMAP is OFF for this mailbox. Turn it on before syncing.' },
+          { status: 400 }
+        )
+      }
       await getMailboxSyncQueue().add(
         'sync-mailbox' as never,
         { mailAccountId: updated.id, reason: 'manual' } as never,
