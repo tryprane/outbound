@@ -10,6 +10,8 @@ import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { mailboxInteractionQueue } from '~/queues/mailboxInteractionQueue'
 import type { MailboxSyncJobData } from '~/queues/mailboxSyncQueue'
 
+const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox'
+
 async function resolveThread(mailAccountId: string, message: MailboxMessageRecord) {
   const providerThreadId = message.providerThreadId || message.messageIdHeader || message.providerMessageId
   return prisma.mailboxThread.upsert({
@@ -138,7 +140,10 @@ function deriveWarmupAutomation(account: {
 export function shouldSkipMailboxSync(account: { type: string; mailboxSyncError: string | null }) {
   return (
     (account.type === 'gmail' && account.mailboxSyncError === 'Reconnect Gmail account to grant mailbox sync permissions') ||
-    (account.type === 'zoho' && account.mailboxSyncError === 'Enable IMAP for this Zoho mailbox, then retry mailbox sync')
+    (account.type === 'zoho' && (
+      account.mailboxSyncError === 'Enable IMAP for this Zoho mailbox, then retry mailbox sync' ||
+      account.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE
+    ))
   )
 }
 

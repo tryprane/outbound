@@ -28,6 +28,7 @@ interface MailAccount {
   mailboxLastSyncedAt: string | null
   mailboxSyncStatus: 'idle' | 'syncing' | 'error'
   mailboxSyncError: string | null
+  zohoImapEnabled?: boolean
   mailboxHealthScore: number
   mailboxHealthStatus: string
   warmupHealthSnapshots: Array<{
@@ -187,6 +188,7 @@ function MailAccountsPageContent() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ActiveTab>('accounts')
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [pendingDailyLimits, setPendingDailyLimits] = useState<Record<string, string>>({})
 
   const [waForm, setWaForm] = useState({ displayName: '', phoneNumber: '', dailyLimit: 40 })
   const [waSaving, setWaSaving] = useState(false)
@@ -239,6 +241,16 @@ function MailAccountsPageContent() {
     const timer = setInterval(() => void loadAll(true), 3_000)
     return () => clearInterval(timer)
   }, [loadAll])
+
+  useEffect(() => {
+    setPendingDailyLimits((prev) => {
+      const next: Record<string, string> = {}
+      for (const account of accounts) {
+        next[account.id] = prev[account.id] ?? String(account.dailyLimit)
+      }
+      return next
+    })
+  }, [accounts])
 
   useEffect(() => {
     let cancelled = false
@@ -300,6 +312,38 @@ function MailAccountsPageContent() {
       showToast('error', data.error || 'Failed to update warmup automation')
       return
     }
+    void loadAll()
+  }
+
+  const handleUpdateMailDailyLimit = async (id: string) => {
+    const rawValue = pendingDailyLimits[id]
+    const dailyLimit = Math.max(1, Number(rawValue || 1))
+    const res = await fetch('/api/mail-accounts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, dailyLimit }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Failed to update daily limit' }))
+      showToast('error', data.error || 'Failed to update daily limit')
+      return
+    }
+    showToast('success', 'Daily send limit updated')
+    void loadAll()
+  }
+
+  const handleZohoImapToggle = async (id: string, current: boolean) => {
+    const res = await fetch('/api/mail-accounts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, zohoImapEnabled: !current }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Failed to update Zoho IMAP setting' }))
+      showToast('error', data.error || 'Failed to update Zoho IMAP setting')
+      return
+    }
+    showToast('success', `Zoho IMAP turned ${current ? 'off' : 'on'}`)
     void loadAll()
   }
 
@@ -1025,6 +1069,11 @@ function MailAccountsPageContent() {
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                           Mailbox sync: {account.mailboxSyncStatus.toUpperCase()} | Last sync: {account.mailboxLastSyncedAt ? new Date(account.mailboxLastSyncedAt).toLocaleString() : 'Never'}
                         </div>
+                        {account.type === 'zoho' ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Zoho IMAP: {account.zohoImapEnabled === false ? 'OFF' : 'ON'}
+                          </div>
+                        ) : null}
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                           Mailbox health: {account.mailboxHealthScore}/100 ({account.mailboxHealthStatus})
                         </div>
@@ -1076,6 +1125,18 @@ function MailAccountsPageContent() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="number"
+                          min={1}
+                          max={500}
+                          value={pendingDailyLimits[account.id] ?? String(account.dailyLimit)}
+                          onChange={(e) => setPendingDailyLimits((prev) => ({ ...prev, [account.id]: e.target.value }))}
+                          style={{ width: '84px' }}
+                          title="Daily send limit"
+                        />
+                        <button className="btn-ghost" onClick={() => void handleUpdateMailDailyLimit(account.id)}>
+                          Save limit
+                        </button>
                         <select value={account.warmupStatus} onChange={(e) => void handleWarmupStatusChange(account.id, e.target.value as MailAccount['warmupStatus'])}>
                           <option value="COLD">COLD</option>
                           <option value="WARMING">WARMING</option>
@@ -1090,6 +1151,15 @@ function MailAccountsPageContent() {
                             Reconnect Gmail
                           </button>
                         ) : null}
+                        {account.type === 'zoho' ? (
+                          <button
+                            className="btn-ghost"
+                            onClick={() => void handleZohoImapToggle(account.id, account.zohoImapEnabled !== false)}
+                            title="Turn Zoho IMAP sync on or off for this mailbox"
+                          >
+                            IMAP {account.zohoImapEnabled === false ? 'OFF' : 'ON'}
+                          </button>
+                        ) : null}
                         <button
                           className="btn-ghost"
                           onClick={() => void handleRunWarmupNow(account.id)}
@@ -1098,7 +1168,12 @@ function MailAccountsPageContent() {
                         >
                           Run warmup tick
                         </button>
-                        <button className="btn-ghost" onClick={() => void handleRunMailboxSyncNow(account.id)}>
+                        <button
+                          className="btn-ghost"
+                          onClick={() => void handleRunMailboxSyncNow(account.id)}
+                          disabled={account.type === 'zoho' && account.zohoImapEnabled === false}
+                          title={account.type === 'zoho' && account.zohoImapEnabled === false ? 'Turn Zoho IMAP ON first' : 'Queue mailbox sync'}
+                        >
                           Sync mailbox
                         </button>
                         <button className="btn-ghost" onClick={() => void handleToggleMailActive(account.id, account.isActive, account.warmupStatus)}>

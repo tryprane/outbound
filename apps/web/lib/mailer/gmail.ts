@@ -80,17 +80,25 @@ export async function exchangeGmailCode(
       refreshToken: tokens.refresh_token,
       tokenExpiry,
       displayName: name,
+      mailboxSyncStatus: 'idle',
+      mailboxSyncError: null,
     },
   })
 
-  if (existingAccount?.warmupStatus === 'PAUSED') {
+  if (existingAccount) {
     await prisma.mailAccount.update({
       where: { id: account.id },
       data: {
-        warmupStatus: 'WARMING',
-        warmupPausedAt: null,
-        warmupAutoEnabled: true,
-        warmupStartedAt: existingAccount.warmupStartedAt ?? new Date(),
+        mailboxSyncStatus: 'idle',
+        mailboxSyncError: null,
+        ...(existingAccount.warmupStatus === 'PAUSED'
+          ? {
+              warmupStatus: 'WARMING',
+              warmupPausedAt: null,
+              warmupAutoEnabled: true,
+              warmupStartedAt: existingAccount.warmupStartedAt ?? new Date(),
+            }
+          : {}),
       },
     })
   }
