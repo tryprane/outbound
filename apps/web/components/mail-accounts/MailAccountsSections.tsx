@@ -1,7 +1,17 @@
 'use client'
 
 import { GmailOAuthButton } from '@/components/mail-accounts/GmailOAuthButton'
+import {
+  AccountHeader,
+  ActionGrid,
+  MetricPair,
+  panelStyle,
+  ProgressBar,
+  StatCard,
+  surfaceCardStyle,
+} from '@/components/mail-accounts/MailAccountsPrimitives'
 import { ZohoAccountForm } from '@/components/mail-accounts/ZohoAccountForm'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import type {
   ActiveTab,
   DomainDiagnostics,
@@ -13,30 +23,6 @@ import type {
   WarmupRecipient,
   WhatsAppAccount,
 } from '@/components/mail-accounts/types'
-
-const panelStyle: React.CSSProperties = {
-  padding: '18px',
-  borderRadius: '20px',
-  border: '1px solid rgba(255,255,255,0.08)',
-  background: 'linear-gradient(180deg, rgba(22,22,31,0.96), rgba(14,14,22,0.96))',
-  boxShadow: '0 18px 45px rgba(0,0,0,0.25)',
-}
-
-const metricCardStyle: React.CSSProperties = {
-  padding: '16px',
-  borderRadius: '16px',
-  border: '1px solid rgba(255,255,255,0.08)',
-  background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))',
-}
-
-function StatCard({ value, label, color }: { value: number | string; label: string; color: string }) {
-  return (
-    <div style={metricCardStyle}>
-      <div style={{ fontSize: '24px', fontWeight: 700, color }}>{value}</div>
-      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>{label}</div>
-    </div>
-  )
-}
 
 export function MailAccountsHero(props: {
   activeTab: ActiveTab
@@ -141,7 +127,7 @@ export function DomainPanels(props: {
           <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Domain health</div>
           <div style={{ display: 'grid', gap: '10px' }}>
             {props.domainHealth.map((item) => (
-              <div key={`${item.domain}-${item.providerHint}`} style={{ ...metricCardStyle, padding: '14px' }}>
+              <div key={`${item.domain}-${item.providerHint}`} style={{ ...surfaceCardStyle, padding: '14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -178,7 +164,7 @@ export function DomainPanels(props: {
           <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Domain safety checks</div>
           <div style={{ display: 'grid', gap: '10px' }}>
             {props.domainDiagnostics.map((item) => (
-              <div key={`${item.domain}-${item.providerHint}`} style={{ ...metricCardStyle, padding: '14px' }}>
+              <div key={`${item.domain}-${item.providerHint}`} style={{ ...surfaceCardStyle, padding: '14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -238,21 +224,20 @@ export function AccountsView(props: {
         ) : (
           <div style={{ display: 'grid', gap: '12px' }}>
             {props.accounts.map((account) => (
-              <div key={account.id} style={{ ...metricCardStyle, padding: '18px' }}>
+              <div key={account.id} style={{ ...surfaceCardStyle, padding: '18px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(320px,1fr)', gap: '18px' }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>{account.email}</div>
-                      <span className="badge badge-completed">{account.type.toUpperCase()}</span>
-                      <span className="badge" style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--text-primary)' }}>
-                        {account.warmupStatus} • Stage {account.warmupStage + 1}
-                      </span>
-                    </div>
+                    <AccountHeader
+                      title={account.email}
+                      providerLabel={account.type}
+                      statusLabel={`${account.warmupStatus} • Stage ${account.warmupStage + 1}`}
+                      secondaryStatus={account.isActive ? 'Campaign active' : 'Campaign inactive'}
+                    />
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '10px', marginTop: '14px' }}>
-                      <div><div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Warmup 7d</div><div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{account.warmupStats7d.successRate}% ({account.warmupStats7d.sent}/{account.warmupStats7d.total})</div></div>
-                      <div><div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Daily pacing</div><div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{account.sentToday}/{account.dailyLimit} with target {account.recommendedDailyLimit}</div></div>
-                      <div><div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Mailbox sync</div><div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{account.mailboxSyncStatus.toUpperCase()}</div></div>
-                      <div><div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Mailbox health</div><div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>{account.mailboxHealthScore}/100 ({account.mailboxHealthStatus})</div></div>
+                      <MetricPair label="Warmup 7d" value={`${account.warmupStats7d.successRate}% (${account.warmupStats7d.sent}/${account.warmupStats7d.total})`} />
+                      <MetricPair label="Daily pacing" value={`${account.sentToday}/${account.dailyLimit} with target ${account.recommendedDailyLimit}`} />
+                      <MetricPair label="Mailbox sync" value={<span><StatusBadge status={account.mailboxSyncStatus} /></span>} />
+                      <MetricPair label="Mailbox health" value={`${account.mailboxHealthScore}/100 (${account.mailboxHealthStatus})`} tone={account.mailboxHealthScore > 65 ? 'var(--success)' : account.mailboxHealthScore > 0 ? 'var(--warning)' : 'var(--text-primary)'} />
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.7 }}>
                       Last mail: {account.lastMailSentAt ? new Date(account.lastMailSentAt).toLocaleString() : 'Never'}<br />
@@ -274,6 +259,11 @@ export function AccountsView(props: {
                         {account.warmupHealthSnapshots[0].notes}
                       </div>
                     ) : null}
+                    <ProgressBar
+                      value={account.sentToday}
+                      max={Math.max(account.recommendedDailyLimit, account.dailyLimit)}
+                      color={account.warmupStatus === 'WARMED' ? 'var(--success)' : 'var(--accent)'}
+                    />
                   </div>
                   <div style={{ display: 'grid', gap: '10px', alignContent: 'start' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: '8px' }}>
@@ -293,7 +283,7 @@ export function AccountsView(props: {
                       <option value="PAUSED">PAUSED</option>
                       <option value="WARMED">WARMED</option>
                     </select>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: '8px' }}>
+                    <ActionGrid>
                       <button className="btn-ghost" onClick={() => props.handleWarmupAutoToggle(account.id, account.warmupAutoEnabled)}>Auto {account.warmupAutoEnabled ? 'ON' : 'OFF'}</button>
                       {account.type === 'gmail' ? (
                         <button className="btn-ghost" onClick={props.handleReconnectGmail}>Reconnect Gmail</button>
@@ -308,7 +298,7 @@ export function AccountsView(props: {
                         {account.isActive ? 'Disable' : 'Enable'}
                       </button>
                       <button className="btn-ghost" style={{ color: 'var(--error)' }} onClick={() => props.handleDeleteMail(account.id, account.email)}>Remove</button>
-                    </div>
+                    </ActionGrid>
                   </div>
                 </div>
               </div>
@@ -326,25 +316,37 @@ export function AccountsView(props: {
         ) : (
           <div style={{ display: 'grid', gap: '12px' }}>
             {props.whatsappAccounts.map((wa) => (
-              <div key={wa.id} style={{ ...metricCardStyle, padding: '18px' }}>
+              <div key={wa.id} style={{ ...surfaceCardStyle, padding: '18px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(280px,360px)', gap: '18px' }}>
                   <div>
-                    <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>{wa.displayName}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                      {wa.phoneNumber || 'No phone number saved'} • {wa.connectionStatus}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                      Sent today {wa.sentToday}/{wa.dailyLimit} • Total sent {wa._count.sentMessages}
+                    <AccountHeader
+                      title={wa.displayName}
+                      providerLabel="active"
+                      statusLabel={wa.connectionStatus}
+                      secondaryStatus={wa.phoneNumber || 'No phone number saved'}
+                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(160px,1fr))', gap: '10px', marginTop: '14px' }}>
+                      <MetricPair label="Daily send" value={`${wa.sentToday}/${wa.dailyLimit}`} />
+                      <MetricPair label="Total sent" value={wa._count.sentMessages} />
                     </div>
                     {wa.lastError ? <div style={{ fontSize: '12px', color: 'var(--error)', marginTop: '10px' }}>{wa.lastError}</div> : null}
+                    {wa.lastQr ? (
+                      <div style={{ marginTop: '12px', padding: '12px', borderRadius: '14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: 600 }}>QR pending for pairing</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Open WhatsApp on your phone, go to Linked Devices, and scan the QR from the live session view.
+                        </div>
+                      </div>
+                    ) : null}
+                    <ProgressBar value={wa.sentToday} max={wa.dailyLimit} color="#22c55e" />
                   </div>
                   <div style={{ display: 'grid', gap: '8px', alignContent: 'start' }}>
                     <input className="input-base" type="number" min={1} max={500} value={wa.dailyLimit} onChange={(e) => props.handleUpdateWhatsappLimit(wa.id, Math.max(1, Number(e.target.value || 1)))} />
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: '8px' }}>
+                    <ActionGrid>
                       <button className="btn-ghost" onClick={() => props.handleToggleWhatsappActive(wa.id, wa.isActive)}>{wa.isActive ? 'Disable' : 'Enable'}</button>
                       <button className="btn-ghost" onClick={() => props.handleReconnectWhatsapp(wa.id)}>Reconnect</button>
                       <button className="btn-ghost" style={{ color: 'var(--error)', gridColumn: '1 / -1' }} onClick={() => props.handleDeleteWhatsapp(wa.id, wa.displayName)}>Remove</button>
-                    </div>
+                    </ActionGrid>
                   </div>
                 </div>
               </div>
@@ -412,7 +414,7 @@ export function WarmupView(props: {
             <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No warmup recipients yet.</div>
           ) : (
             props.warmupRecipients.map((recipient) => (
-              <div key={recipient.id} style={{ ...metricCardStyle, padding: '14px' }}>
+              <div key={recipient.id} style={{ ...surfaceCardStyle, padding: '14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{recipient.name || recipient.email}</div>
@@ -443,7 +445,7 @@ export function WarmupView(props: {
         ) : (
           <div style={{ display: 'grid', gap: '10px' }}>
             {props.warmupLogs.map((log) => (
-              <div key={log.id} style={{ ...metricCardStyle, padding: '14px' }}>
+              <div key={log.id} style={{ ...surfaceCardStyle, padding: '14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
