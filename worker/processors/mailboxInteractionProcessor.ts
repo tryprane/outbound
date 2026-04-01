@@ -34,8 +34,12 @@ function getFirstName(value?: string | null) {
   return fallback.split(/[._\s-]+/).filter(Boolean)[0] || 'there'
 }
 
-function shouldReply(messageId: string) {
-  return hashToPercent(messageId) < 25
+const DEFAULT_REPLY_PERCENT = 25
+const SPAM_RESCUE_REPLY_PERCENT = 55
+
+function shouldReply(messageId: string, boostedForSpamRescue = false) {
+  const threshold = boostedForSpamRescue ? SPAM_RESCUE_REPLY_PERCENT : DEFAULT_REPLY_PERCENT
+  return hashToPercent(messageId) < threshold
 }
 
 async function queueNextStage(mailboxMessageId: string, stage: NonNullable<MailboxInteractionJobData['stage']>, delayMs: number) {
@@ -109,7 +113,8 @@ async function processMailboxInteractionJob(job: Job<MailboxInteractionJobData>)
       })
     }
 
-    if (!refreshed.repliedAt && shouldReply(refreshed.providerMessageId)) {
+    const boostedForSpamRescue = refreshed.isSpam || Boolean(refreshed.rescuedAt)
+    if (!refreshed.repliedAt && shouldReply(refreshed.providerMessageId, boostedForSpamRescue)) {
       await queueNextStage(refreshed.id, 'reply', randomDelayMs(20, 180))
     }
     return
