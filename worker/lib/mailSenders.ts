@@ -23,12 +23,16 @@ export async function sendViaZoho(
     auth: { user: account.email, pass: password },
   })
 
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: `"${account.displayName}" <${account.email}>`,
     to,
     subject,
     html,
   })
+
+  return {
+    providerMessageId: info.messageId || info.response || null,
+  }
 }
 
 export async function sendViaGmail(
@@ -84,8 +88,12 @@ export async function sendViaGmail(
     .replace(/\//g, '_')
     .replace(/=+$/, '')
 
-  await gmail.users.messages.send({
+  const response = await gmail.users.messages.send({
     userId: 'me',
     requestBody: { raw: encodedMessage },
   })
+
+  return {
+    providerMessageId: response.data.id || response.data.threadId || null,
+  }
 }

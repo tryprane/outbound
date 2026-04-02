@@ -58,11 +58,12 @@ export async function GET(request: NextRequest) {
         const records = await prisma.sentWhatsAppMessage.findMany({
           where,
           orderBy: { sentAt: 'desc' },
-          include: {
-            campaign: { select: { name: true } },
-            whatsappAccount: { select: { displayName: true, phoneNumber: true } },
-          },
-        })
+        include: {
+          campaign: { select: { name: true } },
+          apiDispatchRequest: { select: { id: true, apiKey: { select: { name: true } } } },
+          whatsappAccount: { select: { displayName: true, phoneNumber: true } },
+        },
+      })
 
         const header = 'id,campaign,sender,toPhone,message,status,sentAt,errorMessage'
         const rows = records.map((r) => {
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
           const sender = r.whatsappAccount.phoneNumber || r.whatsappAccount.displayName
           return [
             esc(r.id),
-            esc(r.campaign.name),
+            esc(r.campaign?.name || `API:${r.apiDispatchRequest?.apiKey.name || 'Unknown'}`),
             esc(sender),
             esc(r.toPhone),
             esc(r.message),
@@ -97,6 +98,7 @@ export async function GET(request: NextRequest) {
           take: limit,
           include: {
             campaign: { select: { id: true, name: true } },
+            apiDispatchRequest: { select: { id: true, apiKey: { select: { name: true } } } },
             whatsappAccount: { select: { id: true, displayName: true, phoneNumber: true } },
           },
         }),
@@ -147,6 +149,7 @@ export async function GET(request: NextRequest) {
         orderBy: { sentAt: 'desc' },
         include: {
           campaign: { select: { name: true } },
+          apiDispatchRequest: { select: { id: true, apiKey: { select: { name: true } } } },
           mailAccount: { select: { email: true } },
         },
       })
@@ -180,7 +183,7 @@ export async function GET(request: NextRequest) {
         const complaintCount = complaintsByMailId.get(r.id) || 0
         return [
           esc(r.id),
-          esc(r.campaign.name),
+          esc(r.campaign?.name || `API:${r.apiDispatchRequest?.apiKey.name || 'Unknown'}`),
           esc(r.mailAccount.email),
           esc(r.toEmail),
           esc(r.subject),
@@ -212,6 +215,7 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           campaign: { select: { id: true, name: true } },
+          apiDispatchRequest: { select: { id: true, apiKey: { select: { name: true } } } },
           mailAccount: { select: { id: true, email: true, displayName: true } },
           toEmail: true,
           subject: true,

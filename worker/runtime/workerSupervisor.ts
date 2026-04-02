@@ -1,4 +1,5 @@
 import type { Worker } from 'bullmq'
+import { apiDispatchQueue } from '~/queues/apiDispatchQueue'
 import { campaignQueue } from '~/queues/campaignQueue'
 import { mailQueue } from '~/queues/mailQueue'
 import { mailboxInteractionQueue } from '~/queues/mailboxInteractionQueue'
@@ -7,6 +8,7 @@ import { scrapeQueue } from '~/queues/scrapeQueue'
 import { warmupQueue } from '~/queues/warmupQueue'
 import { whatsappQueue } from '~/queues/whatsappQueue'
 import { whatsappSessionQueue } from '~/queues/whatsappSessionQueue'
+import { startApiDispatchWorker } from '~/processors/apiDispatchProcessor'
 import { startCampaignWorker } from '~/processors/campaignProcessor'
 import { startMailWorker } from '~/processors/mailProcessor'
 import { startMailboxInteractionWorker } from '~/processors/mailboxInteractionProcessor'
@@ -17,6 +19,7 @@ import { startWhatsAppWorker } from '~/processors/whatsappProcessor'
 import { startWhatsAppSessionWorker } from '~/processors/whatsappSessionProcessor'
 
 type QueueName =
+  | 'apiDispatch'
   | 'campaign'
   | 'mail'
   | 'mailboxInteraction'
@@ -45,6 +48,7 @@ const SWEEP_INTERVAL_MS = Number.parseInt(process.env.WORKER_SWEEP_INTERVAL_MS ?
 const DEFAULT_IDLE_CLOSE_MS = Number.parseInt(process.env.WORKER_IDLE_CLOSE_MS ?? '120000', 10)
 
 const states: Record<QueueName, ManagedWorker> = {
+  apiDispatch: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   campaign: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   mail: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   mailboxInteraction: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
@@ -56,6 +60,13 @@ const states: Record<QueueName, ManagedWorker> = {
 }
 
 const queues: QueueState[] = [
+  {
+    queueName: 'apiDispatch',
+    priority: 95,
+    idleCloseMs: DEFAULT_IDLE_CLOSE_MS,
+    getCounts: async () => apiDispatchQueue.getJobCounts('waiting', 'active', 'delayed'),
+    start: startApiDispatchWorker,
+  },
   {
     queueName: 'campaign',
     priority: 100,
@@ -226,6 +237,7 @@ export async function stopWorkerSupervisor() {
   }
 
   await Promise.all([
+    stopWorker('apiDispatch'),
     stopWorker('campaign'),
     stopWorker('mail'),
     stopWorker('mailboxInteraction'),

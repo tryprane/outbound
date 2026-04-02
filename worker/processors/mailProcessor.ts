@@ -5,6 +5,7 @@ import { prisma } from '~/lib/prisma'
 import { MailJobData } from '~/queues/mailQueue'
 import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { sendViaGmail, sendViaZoho } from '~/lib/mailSenders'
+import { releaseMailAccountReservation } from '~/lib/apiDispatchPool'
 
 function appendTrackingPixel(html: string, trackingToken: string): string {
   const baseUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'
@@ -66,7 +67,7 @@ function classifyMailFailure(error: unknown): 'failed' | 'bounced' {
 }
 
 async function processMailJob(job: Job<MailJobData>) {
-  const { campaignId, csvRowId, mailAccountId, toEmail, subject, body, trackingToken } = job.data
+  const { campaignId, csvRowId, mailAccountId, apiDispatchRequestId, reservationKey, toEmail, subject, body, trackingToken } = job.data
   const renderedBody = appendTrackingPixel(body, trackingToken)
 
   console.log(`[MailProcessor] Sending to ${toEmail} via account ${mailAccountId}`)
@@ -88,21 +89,25 @@ async function processMailJob(job: Job<MailJobData>) {
   await assertRecentSenderReputation(mailAccountId)
 
   try {
+    let providerMessageId: string | null = null
     if (account.type === 'zoho') {
-      await sendViaZoho(mailAccountId, toEmail, subject, renderedBody)
+      const result = await sendViaZoho(mailAccountId, toEmail, subject, renderedBody)
+      providerMessageId = result.providerMessageId
     } else if (account.type === 'gmail') {
-      await sendViaGmail(mailAccountId, toEmail, subject, renderedBody)
+      const result = await sendViaGmail(mailAccountId, toEmail, subject, renderedBody)
+      providerMessageId = result.providerMessageId
     } else {
       throw new Error(`Unknown account type: ${account.type}`)
     }
 
-    await prisma.$transaction([
+    const operations = [
       prisma.sentMail.create({
         data: {
           id: trackingToken,
           campaignId,
           csvRowId,
           mailAccountId,
+          apiDispatchRequestId,
           toEmail,
           subject,
           body: renderedBody,
@@ -113,11 +118,31 @@ async function processMailJob(job: Job<MailJobData>) {
         where: { id: mailAccountId },
         data: { sentToday: { increment: 1 }, lastMailSentAt: new Date() },
       }),
-      prisma.campaignMailAccount.update({
-        where: { campaignId_mailAccountId: { campaignId, mailAccountId } },
-        data: { sentCount: { increment: 1 }, lastSentAt: new Date() },
-      }),
-    ])
+      ...(campaignId
+        ? [
+            prisma.campaignMailAccount.update({
+              where: { campaignId_mailAccountId: { campaignId, mailAccountId } },
+              data: { sentCount: { increment: 1 }, lastSentAt: new Date() },
+            }),
+          ]
+        : []),
+      ...(apiDispatchRequestId
+        ? [
+            prisma.apiDispatchRequest.update({
+              where: { id: apiDispatchRequestId },
+              data: {
+                status: 'SENT',
+                processedAt: new Date(),
+                providerMessageId,
+                errorMessage: null,
+              },
+            }),
+          ]
+        : []),
+    ]
+
+    await prisma.$transaction(operations)
+    await releaseMailAccountReservation(mailAccountId, reservationKey)
 
     console.log(`[MailProcessor] Sent to ${toEmail}`)
     await mailboxSyncQueue.add(
@@ -131,12 +156,13 @@ async function processMailJob(job: Job<MailJobData>) {
     if (isLastAttempt) {
       const status = classifyMailFailure(err)
       const errorMessage = err instanceof Error ? err.message : String(err)
-      await prisma.$transaction([
+      const operations = [
         prisma.sentMail.create({
           data: {
             campaignId,
             csvRowId,
             mailAccountId,
+            apiDispatchRequestId,
             toEmail,
             subject,
             body,
@@ -153,7 +179,21 @@ async function processMailJob(job: Job<MailJobData>) {
               }),
             ]
           : []),
-      ])
+        ...(apiDispatchRequestId
+          ? [
+              prisma.apiDispatchRequest.update({
+                where: { id: apiDispatchRequestId },
+                data: {
+                  status: 'FAILED',
+                  errorMessage,
+                  processedAt: new Date(),
+                },
+              }),
+            ]
+          : []),
+      ]
+      await prisma.$transaction(operations)
+      await releaseMailAccountReservation(mailAccountId, reservationKey)
       console.error(`[MailProcessor] Final failure to ${toEmail}:`, err)
     }
     throw err

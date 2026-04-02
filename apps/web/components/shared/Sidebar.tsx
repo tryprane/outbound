@@ -49,6 +49,17 @@ const navItems = [
     ),
   },
   {
+    label: 'API Management',
+    href: '/api-management',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M8 9h8"/>
+        <path d="M8 15h5"/>
+        <path d="M4 4h16v16H4z"/>
+      </svg>
+    ),
+  },
+  {
     label: 'Sent Mail',
     href: '/sent',
     icon: (

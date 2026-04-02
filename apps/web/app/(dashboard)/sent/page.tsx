@@ -6,7 +6,8 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 
 interface MailLog {
   id: string
-  campaign: { id: string; name: string }
+  campaign: { id: string; name: string } | null
+  apiDispatchRequest?: { id: string; apiKey: { name: string } } | null
   mailAccount: { id: string; email: string; displayName: string }
   toEmail: string
   subject: string
@@ -300,9 +301,15 @@ export default function GlobalSentMailPage() {
                       {log.subject.replace(/^Subject:\s*/i, '')}
                     </td>
                     <td style={{ padding: '16px', fontSize: '13px' }}>
-                      <Link href={`/campaigns/${log.campaign.id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
-                        {log.campaign.name}
-                      </Link>
+                      {log.campaign ? (
+                        <Link href={`/campaigns/${log.campaign.id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+                          {log.campaign.name}
+                        </Link>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          API {log.apiDispatchRequest?.apiKey.name || 'request'}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>{log.mailAccount.email}</td>
                     <td style={{ padding: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>{formatDate(log.sentAt)}</td>

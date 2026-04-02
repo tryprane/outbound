@@ -4,9 +4,10 @@ import { getRedisConnection } from '~/lib/redis'
 import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { WhatsAppJobData } from '~/queues/whatsappQueue'
 import { sendWhatsAppText } from '~/lib/whatsappBaileys'
+import { releaseWhatsAppAccountReservation } from '~/lib/apiDispatchPool'
 
 async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
-  const { campaignId, csvRowId, whatsappAccountId, toPhone, message } = job.data
+  const { campaignId, csvRowId, whatsappAccountId, apiDispatchRequestId, reservationKey, toPhone, message } = job.data
   const account = await prisma.whatsAppAccount.findUnique({ where: { id: whatsappAccountId } })
   if (!account) throw new Error('WhatsApp account not found')
   if (!account.isActive || account.connectionStatus !== 'CONNECTED') {
@@ -15,12 +16,13 @@ async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
 
   try {
     await sendWhatsAppText(account.id, account.sessionKey, toPhone, message)
-    await prisma.$transaction([
+    const operations = [
       prisma.sentWhatsAppMessage.create({
         data: {
           campaignId,
           csvRowId,
           whatsappAccountId,
+          apiDispatchRequestId,
           toPhone,
           message,
           status: 'sent',
@@ -33,34 +35,71 @@ async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
           lastMessageSentAt: new Date(),
         },
       }),
-      prisma.campaignWhatsAppAccount.update({
-        where: {
-          campaignId_whatsappAccountId: {
-            campaignId,
-            whatsappAccountId,
-          },
-        },
-        data: {
-          sentCount: { increment: 1 },
-          lastSentAt: new Date(),
-        },
-      }),
-    ])
+      ...(campaignId
+        ? [
+            prisma.campaignWhatsAppAccount.update({
+              where: {
+                campaignId_whatsappAccountId: {
+                  campaignId,
+                  whatsappAccountId,
+                },
+              },
+              data: {
+                sentCount: { increment: 1 },
+                lastSentAt: new Date(),
+              },
+            }),
+          ]
+        : []),
+      ...(apiDispatchRequestId
+        ? [
+            prisma.apiDispatchRequest.update({
+              where: { id: apiDispatchRequestId },
+              data: {
+                status: 'SENT',
+                processedAt: new Date(),
+                providerMessageId: account.phoneNumber || account.displayName,
+                errorMessage: null,
+              },
+            }),
+          ]
+        : []),
+    ]
+    await prisma.$transaction(operations)
+    await releaseWhatsAppAccountReservation(whatsappAccountId, reservationKey)
   } catch (err) {
     const maxAttempts = job.opts?.attempts ?? 3
     const isLastAttempt = (job.attemptsMade ?? 0) >= maxAttempts - 1
     if (isLastAttempt) {
-      await prisma.sentWhatsAppMessage.create({
-        data: {
-          campaignId,
-          csvRowId,
-          whatsappAccountId,
-          toPhone,
-          message,
-          status: 'failed',
-          errorMessage: err instanceof Error ? err.message : String(err),
-        },
-      })
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      const operations = [
+        prisma.sentWhatsAppMessage.create({
+          data: {
+            campaignId,
+            csvRowId,
+            whatsappAccountId,
+            apiDispatchRequestId,
+            toPhone,
+            message,
+            status: 'failed',
+            errorMessage,
+          },
+        }),
+        ...(apiDispatchRequestId
+          ? [
+              prisma.apiDispatchRequest.update({
+                where: { id: apiDispatchRequestId },
+                data: {
+                  status: 'FAILED',
+                  errorMessage,
+                  processedAt: new Date(),
+                },
+              }),
+            ]
+          : []),
+      ]
+      await prisma.$transaction(operations)
+      await releaseWhatsAppAccountReservation(whatsappAccountId, reservationKey)
     }
     throw err
   }
