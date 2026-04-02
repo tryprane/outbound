@@ -27,6 +27,8 @@ require_var NEXTAUTH_SECRET
 require_var ENCRYPTION_KEY
 require_var GOOGLE_CLIENT_ID
 require_var GOOGLE_CLIENT_SECRET
+require_var ZOHO_CLIENT_ID
+require_var ZOHO_CLIENT_SECRET
 require_var GEMINI_API_KEY
 
 INGRESS_HOST="$(printf '%s' "$PUBLIC_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
@@ -63,6 +65,10 @@ kubectl -n "$NAMESPACE" create secret generic outbound-env \
   --from-literal=ENCRYPTION_KEY="$ENCRYPTION_KEY" \
   --from-literal=GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
   --from-literal=GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+  --from-literal=ZOHO_CLIENT_ID="$ZOHO_CLIENT_ID" \
+  --from-literal=ZOHO_CLIENT_SECRET="$ZOHO_CLIENT_SECRET" \
+  --from-literal=ZOHO_ACCOUNTS_BASE_URL="${ZOHO_ACCOUNTS_BASE_URL:-https://accounts.zoho.in}" \
+  --from-literal=ZOHO_MAIL_API_BASE_URL="${ZOHO_MAIL_API_BASE_URL:-https://mail.zoho.in/api}" \
   --from-literal=GEMINI_API_KEY="$GEMINI_API_KEY" \
   --from-literal=NODE_ENV=production \
   --from-literal=WORKER_GLOBAL_ACTIVE_LIMIT="${WORKER_GLOBAL_ACTIVE_LIMIT:-4}" \

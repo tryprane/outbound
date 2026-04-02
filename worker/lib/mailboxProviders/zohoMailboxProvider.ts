@@ -4,6 +4,16 @@ import type { MailAccount } from '@prisma/client'
 import { decrypt } from '~/lib/encryption'
 import type { MailboxFolder, MailboxFolderKind, MailboxMessageRecord, MailboxProvider, MailboxStoredMessageRef } from '~/lib/mailboxProviders/types'
 import { extractEmailAddress, safeDate, uniqByProviderMessageId } from '~/lib/mailboxProviders/utils'
+import {
+  getZohoFolders,
+  listZohoMessages,
+  mapZohoFolderKind,
+  mapZohoMessageRecord,
+  markZohoMessagesAsNotSpam,
+  markZohoMessagesAsRead,
+  moveZohoMessages,
+  sendZohoReply,
+} from '~/lib/zohoMailApi'
 
 export function inferZohoImapHost(smtpHost?: string | null): string {
   const normalized = smtpHost?.toLowerCase() || ''
@@ -45,6 +55,15 @@ export class ZohoMailboxProvider implements MailboxProvider {
   constructor(private readonly account: MailAccount) {}
 
   async listFolders(): Promise<MailboxFolder[]> {
+    if (this.account.zohoMailboxMode === 'api') {
+      const folders = await getZohoFolders(this.account)
+      return folders.map((folder) => ({
+        id: folder.folderId,
+        name: folder.folderName,
+        kind: mapZohoFolderKind(folder),
+      }))
+    }
+
     const client = await this.connect()
     try {
       const mailboxes = await client.list()
@@ -59,6 +78,28 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async listRecentMessages(options: { days?: number; limitPerFolder?: number } = {}): Promise<MailboxMessageRecord[]> {
+    if (this.account.zohoMailboxMode === 'api') {
+      const folders = await getZohoFolders(this.account)
+      const interesting = folders.filter((folder) => {
+        const kind = mapZohoFolderKind(folder)
+        return kind === 'INBOX' || kind === 'SPAM' || kind === 'SENT'
+      })
+      const limitPerFolder = Math.max(1, options.limitPerFolder ?? 25)
+      const result: MailboxMessageRecord[] = []
+      for (const folder of interesting) {
+        const kind = mapZohoFolderKind(folder)
+        const messages = await listZohoMessages(this.account, {
+          folderId: folder.folderId,
+          limit: limitPerFolder,
+          includesent: kind === 'SENT',
+        })
+        for (const message of messages) {
+          result.push(mapZohoMessageRecord(message, folder, kind))
+        }
+      }
+      return uniqByProviderMessageId(result)
+    }
+
     const client = await this.connect()
     const days = Math.max(1, options.days ?? 7)
     const limitPerFolder = Math.max(1, options.limitPerFolder ?? 25)
@@ -118,6 +159,11 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async markAsRead(message: MailboxStoredMessageRef): Promise<void> {
+    if (this.account.zohoMailboxMode === 'api') {
+      await markZohoMessagesAsRead(this.account, [message.providerMessageId])
+      return
+    }
+
     const target = this.parseStoredMessageRef(message)
     const client = await this.connect()
     try {
@@ -129,6 +175,21 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async rescueToInbox(message: MailboxStoredMessageRef): Promise<void> {
+    if (this.account.zohoMailboxMode === 'api') {
+      const folderId = typeof message.metadata?.folderId === 'string' ? message.metadata.folderId : null
+      const folders = await getZohoFolders(this.account)
+      const inbox = folders.find((folder) => mapZohoFolderKind(folder) === 'INBOX')
+      if (!inbox) {
+        throw new Error(`Inbox folder not found for ${this.account.email}`)
+      }
+      if (folderId !== inbox.folderId) {
+        await moveZohoMessages(this.account, [message.providerMessageId], inbox.folderId)
+      }
+      await markZohoMessagesAsNotSpam(this.account, [message.providerMessageId])
+      await markZohoMessagesAsRead(this.account, [message.providerMessageId])
+      return
+    }
+
     const target = this.parseStoredMessageRef(message)
     const client = await this.connect()
     try {
@@ -140,6 +201,17 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async sendReply(message: MailboxStoredMessageRef, reply: { subject: string; html: string }): Promise<void> {
+    if (this.account.zohoMailboxMode === 'api') {
+      const to = message.fromEmail || message.toEmail
+      if (!to) throw new Error(`Reply target missing for Zoho mailbox ${this.account.email}`)
+      await sendZohoReply(this.account, message.providerMessageId, {
+        toAddress: to,
+        subject: reply.subject,
+        content: reply.html,
+      })
+      return
+    }
+
     if (!this.account.smtpPassword) {
       throw new Error(`Zoho credentials missing for ${this.account.email}`)
     }
@@ -172,6 +244,9 @@ export class ZohoMailboxProvider implements MailboxProvider {
   private async connect() {
     if (this.account.type !== 'zoho') {
       throw new Error(`Mailbox provider mismatch for ${this.account.email}`)
+    }
+    if (this.account.zohoMailboxMode === 'api') {
+      throw new Error(`Zoho IMAP connection requested for API mailbox ${this.account.email}`)
     }
     if (!this.account.smtpPassword) {
       throw new Error(`Zoho credentials missing for ${this.account.email}`)

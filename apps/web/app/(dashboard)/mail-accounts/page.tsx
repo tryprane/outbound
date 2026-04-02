@@ -66,7 +66,14 @@ function MailAccountsPageContent() {
           handleWarmupAutoToggle={dashboard.handleWarmupAutoToggle}
           handleUpdateMailDailyLimit={dashboard.handleUpdateMailDailyLimit}
           handleReconnectGmail={dashboard.handleReconnectGmail}
+          handleReconnectZohoApi={dashboard.handleReconnectZohoApi}
           handleZohoImapToggle={dashboard.handleZohoImapToggle}
+          handleOpenMailboxFolder={dashboard.handleOpenMailboxFolder}
+          handleMailboxAction={dashboard.handleMailboxAction}
+          activeMailboxAccountId={dashboard.activeMailboxAccountId}
+          activeMailboxFolder={dashboard.activeMailboxFolder}
+          mailboxMessages={dashboard.mailboxMessages}
+          mailboxLoading={dashboard.mailboxLoading}
           handleRunWarmupNow={dashboard.handleRunWarmupNow}
           handleRunMailboxSyncNow={dashboard.handleRunMailboxSyncNow}
           handleToggleMailActive={dashboard.handleToggleMailActive}

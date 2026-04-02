@@ -9,8 +9,10 @@ import {
   deleteWarmupRecipient,
   deleteWhatsappAccount,
   fetchDomainDiagnostics,
+  fetchMailboxMessages,
   fetchMailAccountsDashboardData,
   importWarmupRecipients,
+  patchMailboxMessage,
   patchMailAccount,
   patchWarmupRecipient,
   patchWhatsappAccount,
@@ -21,6 +23,7 @@ import type {
   DomainHealthSnapshot,
   DomainHealthSummary,
   MailAccount,
+  MailboxMessage,
   WarmupLog,
   WarmupOverview,
   WarmupRecipient,
@@ -46,6 +49,10 @@ export function useMailAccountsDashboard() {
   const [recipientForm, setRecipientForm] = useState({ email: '', name: '', isActive: true })
   const [recipientSaving, setRecipientSaving] = useState(false)
   const [bulkRecipients, setBulkRecipients] = useState('')
+  const [activeMailboxAccountId, setActiveMailboxAccountId] = useState<string | null>(null)
+  const [activeMailboxFolder, setActiveMailboxFolder] = useState<'INBOX' | 'SPAM'>('INBOX')
+  const [mailboxMessages, setMailboxMessages] = useState<MailboxMessage[]>([])
+  const [mailboxLoading, setMailboxLoading] = useState(false)
 
   const showToast = useCallback((type: 'success' | 'error', msg: string) => {
     setToast({ type, msg })
@@ -139,6 +146,41 @@ export function useMailAccountsDashboard() {
   const handleZohoImapToggle = useCallback(async (id: string, current: boolean) => {
     await handlePatchMailAccount({ id, zohoImapEnabled: !current }, `Zoho IMAP turned ${current ? 'off' : 'on'}`)
   }, [handlePatchMailAccount])
+
+  const handleOpenMailboxFolder = useCallback(async (mailAccountId: string, folderKind: 'INBOX' | 'SPAM') => {
+    setActiveMailboxAccountId(mailAccountId)
+    setActiveMailboxFolder(folderKind)
+    setMailboxLoading(true)
+    const messages = await fetchMailboxMessages(mailAccountId, folderKind)
+    setMailboxMessages(Array.isArray(messages) ? messages : [])
+    setMailboxLoading(false)
+  }, [])
+
+  const handleMailboxAction = useCallback(async (
+    mailAccountId: string,
+    mailboxMessageId: string,
+    action: 'mark-read' | 'rescue-to-inbox' | 'reply'
+  ) => {
+    const payload: Record<string, unknown> = { mailAccountId, mailboxMessageId, action }
+    if (action === 'reply') {
+      const html = window.prompt('Reply HTML/body', '<p>Thanks for your message. Sharing a quick reply from the dashboard.</p>')
+      if (!html) return
+      const subject = window.prompt('Reply subject', 'Re: Quick follow-up')
+      payload.html = html
+      payload.subject = subject || 'Re: Quick follow-up'
+    }
+    const res = await patchMailboxMessage(payload)
+    const data = await res.json().catch(() => ({ error: 'Mailbox action failed' }))
+    if (!res.ok) {
+      showToast('error', data.error || 'Mailbox action failed')
+      return
+    }
+    showToast('success', action === 'reply' ? 'Reply sent' : 'Mailbox updated')
+    if (activeMailboxAccountId) {
+      void handleOpenMailboxFolder(activeMailboxAccountId, activeMailboxFolder)
+    }
+    void loadAll(true)
+  }, [activeMailboxAccountId, activeMailboxFolder, handleOpenMailboxFolder, loadAll, showToast])
 
   const handleCreateWarmupRecipient = useCallback(async () => {
     if (!recipientForm.email.trim()) {
@@ -284,6 +326,10 @@ export function useMailAccountsDashboard() {
     window.location.href = '/api/mail-accounts/gmail'
   }, [])
 
+  const handleReconnectZohoApi = useCallback(() => {
+    window.location.href = '/api/mail-accounts/zoho/connect'
+  }, [])
+
   const derived = useMemo(() => {
     const warmedAccounts = accounts.filter((a) => a.warmupStatus === 'WARMED')
     const warmingAccounts = accounts.filter((a) => a.warmupStatus === 'WARMING')
@@ -345,6 +391,8 @@ export function useMailAccountsDashboard() {
     handleWarmupAutoToggle,
     handleUpdateMailDailyLimit,
     handleZohoImapToggle,
+    handleOpenMailboxFolder,
+    handleMailboxAction,
     handleCreateWarmupRecipient,
     handleToggleWarmupRecipient,
     handleBulkWarmupRecipients,
@@ -358,6 +406,11 @@ export function useMailAccountsDashboard() {
     handleDeleteWhatsapp,
     handleReconnectWhatsapp,
     handleReconnectGmail,
+    handleReconnectZohoApi,
+    activeMailboxAccountId,
+    activeMailboxFolder,
+    mailboxMessages,
+    mailboxLoading,
     ...derived,
   }
 }

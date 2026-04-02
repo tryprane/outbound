@@ -17,6 +17,15 @@ export interface MailAccount {
   warmupPausedAt: string | null
   lastMailSentAt: string | null
   tokenExpiry: string | null
+  zohoAccountId?: string | null
+  zohoRegion?: string | null
+  zohoTokenExpiry?: string | null
+  zohoMailboxMode?: 'imap' | 'api'
+  zohoLastTokenRefreshAt?: string | null
+  zohoAuthError?: string | null
+  mailboxConnectionMethod?: 'imap' | 'api' | 'oauth' | 'unknown'
+  zohoApiConnected?: boolean
+  mailboxSyncAvailable?: boolean
   imapHost: string | null
   imapPort: number | null
   imapSecure: boolean
@@ -69,6 +78,31 @@ export interface WarmupRecipient {
   isSystem: boolean
   mailAccountId: string | null
   createdAt: string
+}
+
+export interface MailboxMessage {
+  id: string
+  mailAccountId: string
+  providerMessageId: string
+  providerThreadId: string | null
+  folderKind: 'INBOX' | 'SPAM' | 'SENT' | 'ARCHIVE' | 'OTHER'
+  folderName: string | null
+  direction: 'inbound' | 'outbound'
+  fromEmail: string | null
+  toEmail: string | null
+  subject: string | null
+  snippet: string | null
+  sentAt: string | null
+  receivedAt: string | null
+  isWarmup: boolean
+  isRead: boolean
+  isStarred: boolean
+  isSpam: boolean
+  openedAt: string | null
+  repliedAt: string | null
+  rescuedAt: string | null
+  createdAt: string
+  mailAccount: { email: string; displayName: string; type: 'zoho' | 'gmail' }
 }
 
 export interface WarmupOverview {

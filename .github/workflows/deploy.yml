@@ -91,6 +91,8 @@ jobs:
             export ENCRYPTION_KEY='${{ secrets.ENCRYPTION_KEY }}'
             export GOOGLE_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'
             export GOOGLE_CLIENT_SECRET='${{ secrets.GOOGLE_CLIENT_SECRET }}'
+            export ZOHO_CLIENT_ID='${{ secrets.ZOHO_CLIENT_ID }}'
+            export ZOHO_CLIENT_SECRET='${{ secrets.ZOHO_CLIENT_SECRET }}'
             export GEMINI_API_KEY='${{ secrets.GEMINI_API_KEY }}'
             export GHCR_USERNAME='${{ vars.GHCR_USERNAME }}'
             export GHCR_TOKEN='${{ secrets.GHCR_TOKEN }}'
