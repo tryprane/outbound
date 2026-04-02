@@ -2,9 +2,11 @@ import { Queue } from 'bullmq'
 import { getRedisConnection } from '~/lib/redis'
 
 export interface MailJobData {
-  campaignId: string
-  csvRowId: string
+  campaignId: string | null
+  csvRowId: string | null
   mailAccountId: string
+  apiDispatchRequestId?: string | null
+  reservationKey?: string | null
   toEmail: string
   subject: string
   body: string

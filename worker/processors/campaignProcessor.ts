@@ -8,17 +8,21 @@ import { CampaignJobData } from '~/queues/campaignQueue'
 import { scrapeQueue, ScrapeJobData } from '~/queues/scrapeQueue'
 import { mailQueue, MailJobData } from '~/queues/mailQueue'
 import { whatsappQueue, WhatsAppJobData } from '~/queues/whatsappQueue'
-import { evaluateMailAccountGuardrail } from '~/lib/campaignGuardrails'
+import {
+  pickReservedCampaignMailAccount,
+  pickReservedCampaignWhatsAppAccount,
+  releaseMailAccountReservation,
+  releaseWhatsAppAccountReservation,
+} from '~/lib/apiDispatchPool'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
-
-// ─── Gemini mail generation ────────────────────────────────────────────────────
 
 interface GeneratedMail {
   subject: string
   body: string
 }
+
 interface GeneratedWhatsApp {
   message: string
 }
@@ -78,7 +82,7 @@ function parseGeneratedMail(raw: string): GeneratedMail | null {
       if (!subject || !body) continue
       return { subject, body }
     } catch {
-      // keep trying other extraction strategies
+      // Try the next extraction strategy.
     }
   }
 
@@ -159,6 +163,7 @@ Lead details:
 - Website: ${website || 'Not available'}
 
 Return strict JSON only. Attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}.`
+
     try {
       const result = await model.generateContent([systemContext, userPrompt])
       const text = result.response.text().trim()
@@ -169,67 +174,18 @@ Return strict JSON only. Attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}.`
         if (message) return { message }
       }
     } catch {
-      // retry
+      // Retry.
     }
   }
 
-  return { message: `Hi ${agencyName || 'there'}, sharing a quick outreach message. Let me know if you'd like a short plan tailored to your current growth goals.` }
-}
-
-// ─── Round-robin account selector ─────────────────────────────────────────────
-
-async function pickNextAccount(campaignId: string, dailyMailsPerAccount: number) {
-  const assignments = await prisma.campaignMailAccount.findMany({
-    where: { campaignId },
-    include: { mailAccount: true },
-    orderBy: { lastSentAt: 'asc' }, // oldest sender goes first (round-robin)
-  })
-
-  // Spread daily limit over 8-hour window for interval enforcement
-  const intervalMs = Math.floor((8 * 60 * 60 * 1000) / dailyMailsPerAccount)
-  const now = new Date()
-
-  for (const a of assignments) {
-    const acc = a.mailAccount
-    if (!evaluateMailAccountGuardrail(acc).eligible) continue
-    if (acc.sentToday >= dailyMailsPerAccount) continue
-    if (acc.lastMailSentAt) {
-      const elapsed = now.getTime() - acc.lastMailSentAt.getTime()
-      if (elapsed < intervalMs) continue
-    }
-    return acc
+  return {
+    message: `Hi ${agencyName || 'there'}, sharing a quick outreach message. Let me know if you'd like a short plan tailored to your current growth goals.`,
   }
-  return null
 }
-
-async function pickNextWhatsAppAccount(campaignId: string, dailyLimit: number) {
-  const assignments = await prisma.campaignWhatsAppAccount.findMany({
-    where: { campaignId },
-    include: { whatsappAccount: true },
-    orderBy: { lastSentAt: 'asc' },
-  })
-
-  const intervalMs = Math.floor((8 * 60 * 60 * 1000) / Math.max(1, dailyLimit))
-  const now = new Date()
-
-  for (const a of assignments) {
-    const acc = a.whatsappAccount
-    if (!acc.isActive) continue
-    if (acc.connectionStatus !== 'CONNECTED') continue
-    if (acc.sentToday >= dailyLimit) continue
-    if (acc.lastMessageSentAt) {
-      const elapsed = now.getTime() - acc.lastMessageSentAt.getTime()
-      if (elapsed < intervalMs) continue
-    }
-    return acc
-  }
-  return null
-}
-
-// ─── Processor ────────────────────────────────────────────────────────────────
 
 async function processCampaignJob(job: Job<CampaignJobData>) {
   const { campaignId } = job.data
+  const reservationKey = `campaign:${campaignId}:${job.id ?? Date.now()}`
 
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -250,14 +206,12 @@ async function processCampaignJob(job: Job<CampaignJobData>) {
     return
   }
 
-  // All rows processed → mark completed
   if (campaign.currentRowIndex >= campaign.csvFile.rowCount) {
     await prisma.campaign.update({ where: { id: campaignId }, data: { status: 'completed' } })
-    console.log(`[CampaignProcessor] Campaign ${campaignId} completed!`)
+    console.log(`[CampaignProcessor] Campaign ${campaignId} completed`)
     return
   }
 
-  // Fetch the next CsvRow
   const row = await prisma.csvRow.findFirst({
     where: { csvFileId: campaign.csvFileId, rowIndex: campaign.currentRowIndex },
   })
@@ -267,28 +221,34 @@ async function processCampaignJob(job: Job<CampaignJobData>) {
     return
   }
 
-  // Check unsubscribe list for email campaigns
   const emailToCheck = row.email || row.scrapedEmail
   if (campaign.channel === 'EMAIL' && emailToCheck) {
     const unsub = await prisma.unsubscribeList.findUnique({ where: { email: emailToCheck } })
     if (unsub) {
-      console.log(`[CampaignProcessor] ${emailToCheck} is unsubscribed — skipping`)
+      console.log(`[CampaignProcessor] ${emailToCheck} is unsubscribed, skipping`)
       await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
       return
     }
   }
 
   if (campaign.channel === 'WHATSAPP') {
-    const waAccount = await pickNextWhatsAppAccount(campaignId, campaign.dailyMailsPerAccount)
+    const waAccount = await pickReservedCampaignWhatsAppAccount(
+      campaignId,
+      campaign.dailyMailsPerAccount,
+      reservationKey
+    )
+
     if (!waAccount) {
-      console.log(`[CampaignProcessor] Campaign ${campaignId} — no eligible WhatsApp accounts right now`)
+      console.log(`[CampaignProcessor] Campaign ${campaignId} has no eligible WhatsApp accounts right now`)
       return
     }
 
     const raw = row.rawData as Record<string, string>
     const mappedPhone = campaign.whatsappColumn ? (raw[campaign.whatsappColumn] || '') : ''
     const finalPhone = (row.whatsapp || row.scrapedPhone || mappedPhone || '').toString().trim()
+
     if (!finalPhone) {
+      await releaseWhatsAppAccountReservation(waAccount.id, reservationKey)
       await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
       return
     }
@@ -296,7 +256,9 @@ async function processCampaignJob(job: Job<CampaignJobData>) {
     const existing = await prisma.sentWhatsAppMessage.findFirst({
       where: { campaignId, toPhone: finalPhone },
     })
+
     if (existing) {
+      await releaseWhatsAppAccountReservation(waAccount.id, reservationKey)
       await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
       return
     }
@@ -312,18 +274,25 @@ async function processCampaignJob(job: Job<CampaignJobData>) {
       campaignId,
       csvRowId: row.id,
       whatsappAccountId: waAccount.id,
+      reservationKey,
       toPhone: finalPhone,
       message: generated.message,
     }
-    await whatsappQueue.add('send-whatsapp' as never, waJobData as never)
+
+    try {
+      await whatsappQueue.add('send-whatsapp' as never, waJobData as never)
+    } catch (error) {
+      await releaseWhatsAppAccountReservation(waAccount.id, reservationKey)
+      throw error
+    }
+
     await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
     return
   }
 
-  // EMAIL flow: resolve email; optionally trigger scrape
-  const account = await pickNextAccount(campaignId, campaign.dailyMailsPerAccount)
+  const account = await pickReservedCampaignMailAccount(campaignId, campaign.dailyMailsPerAccount, reservationKey)
   if (!account) {
-    console.log(`[CampaignProcessor] Campaign ${campaignId} — no eligible accounts right now`)
+    console.log(`[CampaignProcessor] Campaign ${campaignId} has no eligible mail accounts right now`)
     return
   }
 
@@ -355,32 +324,34 @@ async function processCampaignJob(job: Job<CampaignJobData>) {
   }
 
   if (!finalEmail) {
-    console.log(`[CampaignProcessor] Row ${row.id} — no email found, skipping`)
+    console.log(`[CampaignProcessor] Row ${row.id} has no email, skipping`)
+    await releaseMailAccountReservation(account.id, reservationKey)
     await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
     return
   }
 
-  // ── Duplicate guard (per-campaign) ────────────────────────────────────────
   const perCampaignDupe = await prisma.sentMail.findFirst({
     where: { campaignId, toEmail: finalEmail },
   })
   if (perCampaignDupe) {
-    console.log(`[CampaignProcessor] Duplicate in campaign — skipping ${finalEmail}`)
+    console.log(`[CampaignProcessor] Duplicate in campaign, skipping ${finalEmail}`)
+    await releaseMailAccountReservation(account.id, reservationKey)
     await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
     return
   }
 
-  // ── Duplicate guard (cross-campaign — only skip if previously delivered) ──
   const globalDupe = await prisma.sentMail.findFirst({
     where: { toEmail: finalEmail, status: 'sent' },
   })
   if (globalDupe) {
-    console.log(`[CampaignProcessor] Global duplicate — ${finalEmail} already received mail from campaign ${globalDupe.campaignId}, skipping`)
+    console.log(
+      `[CampaignProcessor] Global duplicate, ${finalEmail} already received mail from campaign ${globalDupe.campaignId}, skipping`
+    )
+    await releaseMailAccountReservation(account.id, reservationKey)
     await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
     return
   }
 
-  // Generate mail via Gemini
   let generated: GeneratedMail
   try {
     generated = await generateMail({
@@ -391,29 +362,33 @@ async function processCampaignJob(job: Job<CampaignJobData>) {
     })
   } catch (err) {
     console.error(`[CampaignProcessor] Gemini failed for row ${row.id}:`, err)
+    await releaseMailAccountReservation(account.id, reservationKey)
     await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
     return
   }
 
-  // Enqueue mail job
   const mailJobData: MailJobData = {
     campaignId,
     csvRowId: row.id,
     mailAccountId: account.id,
+    reservationKey,
     toEmail: finalEmail,
     subject: generated.subject,
     body: ensureEmailHtml(generated.body),
     trackingToken: randomUUID(),
   }
-  await mailQueue.add('send-mail' as never, mailJobData as never)
 
-  // Advance row pointer
+  try {
+    await mailQueue.add('send-mail' as never, mailJobData as never)
+  } catch (error) {
+    await releaseMailAccountReservation(account.id, reservationKey)
+    throw error
+  }
+
   await prisma.campaign.update({ where: { id: campaignId }, data: { currentRowIndex: { increment: 1 } } })
 
-  console.log(`[CampaignProcessor] Campaign ${campaignId} — queued mail to ${finalEmail} via ${account.email}`)
+  console.log(`[CampaignProcessor] Campaign ${campaignId} queued mail to ${finalEmail} via ${account.email}`)
 }
-
-// ─── Worker boot ──────────────────────────────────────────────────────────────
 
 export function startCampaignWorker() {
   const worker = new Worker<CampaignJobData>('campaign-queue', processCampaignJob, {

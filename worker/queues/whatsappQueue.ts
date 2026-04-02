@@ -2,9 +2,11 @@ import { Queue } from 'bullmq'
 import { getRedisConnection } from '~/lib/redis'
 
 export interface WhatsAppJobData {
-  campaignId: string
-  csvRowId: string
+  campaignId: string | null
+  csvRowId: string | null
   whatsappAccountId: string
+  apiDispatchRequestId?: string | null
+  reservationKey?: string | null
   toPhone: string
   message: string
 }

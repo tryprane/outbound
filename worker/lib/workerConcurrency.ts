@@ -1,4 +1,5 @@
 type WorkerLimitName =
+  | 'apiDispatch'
   | 'campaign'
   | 'mail'
   | 'mailboxInteraction'
@@ -15,6 +16,8 @@ function readPositiveInt(value: string | undefined, fallback: number): number {
 
 export function getWorkerConcurrency(name: WorkerLimitName): number {
   switch (name) {
+    case 'apiDispatch':
+      return readPositiveInt(process.env.API_DISPATCH_WORKER_CONCURRENCY, 1)
     case 'campaign':
       return readPositiveInt(process.env.CAMPAIGN_WORKER_CONCURRENCY, 1)
     case 'mail':

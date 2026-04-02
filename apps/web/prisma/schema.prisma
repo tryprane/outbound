@@ -37,6 +37,19 @@ enum WhatsAppConnectionStatus {
   ERROR
 }
 
+enum ApiDispatchChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum ApiDispatchStatus {
+  QUEUED
+  PROCESSING
+  SENT
+  FAILED
+  REJECTED_NO_CAPACITY
+}
+
 model MailAccount {
   id           String   @id @default(cuid())
   type         String   // "zoho" | "gmail"
@@ -73,6 +86,8 @@ model MailAccount {
   sentToday    Int      @default(0)
   lastResetAt  DateTime @default(now())
   lastMailSentAt DateTime?
+  apiReservationKey String?
+  apiReservedUntil DateTime?
   isActive     Boolean  @default(true)
   warmupStatus WarmupStatus @default(COLD)
   warmupStage  Int      @default(0)
@@ -93,6 +108,7 @@ model MailAccount {
   mailboxMessages MailboxMessage[]
   warmupHealthSnapshots WarmupHealthSnapshot[]
   complaintEvents ComplaintEvent[]
+  apiDispatchRequests ApiDispatchRequest[] @relation("SelectedMailAccount")
 }
 
 model CsvFile {
@@ -182,11 +198,14 @@ model WhatsAppAccount {
   sentToday          Int      @default(0)
   lastResetAt        DateTime @default(now())
   lastMessageSentAt  DateTime?
+  apiReservationKey  String?
+  apiReservedUntil   DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   campaigns          CampaignWhatsAppAccount[]
   sentMessages       SentWhatsAppMessage[]
+  apiDispatchRequests ApiDispatchRequest[] @relation("SelectedWhatsAppAccount")
 
   @@index([connectionStatus])
   @@index([isActive])
@@ -206,29 +225,33 @@ model CampaignWhatsAppAccount {
 
 model SentWhatsAppMessage {
   id               String   @id @default(cuid())
-  campaignId       String
-  csvRowId         String
+  campaignId       String?
+  csvRowId         String?
   whatsappAccountId String
+  apiDispatchRequestId String? @unique
   toPhone          String
   message          String   @db.Text
   status           String   // "sent" | "failed"
   sentAt           DateTime @default(now())
   errorMessage     String?
 
-  campaign         Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  csvRow           CsvRow          @relation(fields: [csvRowId], references: [id], onDelete: Cascade)
+  campaign         Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  csvRow           CsvRow?         @relation(fields: [csvRowId], references: [id], onDelete: SetNull)
   whatsappAccount  WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  apiDispatchRequest ApiDispatchRequest? @relation(fields: [apiDispatchRequestId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
   @@index([whatsappAccountId])
+  @@index([apiDispatchRequestId])
   @@index([sentAt])
 }
 
 model SentMail {
   id            String   @id @default(cuid())
-  campaignId    String
-  csvRowId      String
+  campaignId    String?
+  csvRowId      String?
   mailAccountId String
+  apiDispatchRequestId String? @unique
   toEmail       String
   subject       String
   body          String   @db.Text
@@ -236,14 +259,63 @@ model SentMail {
   sentAt        DateTime @default(now())
   errorMessage  String?
 
-  campaign    Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  csvRow      CsvRow      @relation(fields: [csvRowId], references: [id], onDelete: Cascade)
+  campaign    Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  csvRow      CsvRow?     @relation(fields: [csvRowId], references: [id], onDelete: SetNull)
   mailAccount MailAccount @relation(fields: [mailAccountId], references: [id], onDelete: Cascade)
+  apiDispatchRequest ApiDispatchRequest? @relation(fields: [apiDispatchRequestId], references: [id], onDelete: SetNull)
   complaintEvents ComplaintEvent[]
 
   @@index([campaignId])
   @@index([mailAccountId])
+  @@index([apiDispatchRequestId])
   @@index([sentAt])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  keyPrefix   String
+  keyHash     String   @unique
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+  revokedAt   DateTime?
+
+  apiDispatchRequests ApiDispatchRequest[]
+
+  @@index([isActive, createdAt])
+}
+
+model ApiDispatchRequest {
+  id                    String            @id @default(cuid())
+  channel               ApiDispatchChannel
+  status                ApiDispatchStatus @default(QUEUED)
+  requestedTo           String
+  subject               String?
+  content               String            @db.Text
+  metadata              Json?
+  apiKeyId              String
+  idempotencyKey        String?
+  selectedMailAccountId String?
+  selectedWhatsAppAccountId String?
+  errorMessage          String?           @db.Text
+  providerMessageId     String?
+  queuedAt              DateTime?
+  processedAt           DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  apiKey            ApiKey           @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  selectedMailAccount MailAccount?   @relation("SelectedMailAccount", fields: [selectedMailAccountId], references: [id], onDelete: SetNull)
+  selectedWhatsAppAccount WhatsAppAccount? @relation("SelectedWhatsAppAccount", fields: [selectedWhatsAppAccountId], references: [id], onDelete: SetNull)
+  sentMail          SentMail?
+  sentWhatsAppMessage SentWhatsAppMessage?
+
+  @@index([channel, status, createdAt])
+  @@index([apiKeyId, createdAt])
+  @@unique([apiKeyId, idempotencyKey])
+  @@index([selectedMailAccountId, createdAt])
+  @@index([selectedWhatsAppAccountId, createdAt])
 }
 
 model UnsubscribeList {
