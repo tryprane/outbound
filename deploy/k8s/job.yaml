@@ -17,7 +17,7 @@ spec:
         - name: schema-sync
           image: __WORKER_IMAGE__
           imagePullPolicy: IfNotPresent
-          command: ["sh", "-lc", "npm run db:migrate:deploy"]
+          command: ["sh", "-lc", "npm run db:deploy"]
           envFrom:
             - secretRef:
                 name: outbound-env
