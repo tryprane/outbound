@@ -45,6 +45,21 @@ function resolveZohoAccountsBaseUrl() {
   return (process.env.ZOHO_ACCOUNTS_BASE_URL || 'https://accounts.zoho.in').replace(/\/+$/, '')
 }
 
+function requireZohoOAuthEnv() {
+  const clientId = process.env.ZOHO_CLIENT_ID?.trim()
+  const clientSecret = process.env.ZOHO_CLIENT_SECRET?.trim()
+
+  if (!clientId) {
+    throw new Error('ZOHO_CLIENT_ID is missing. Add it to your environment before connecting Zoho API.')
+  }
+
+  if (!clientSecret) {
+    throw new Error('ZOHO_CLIENT_SECRET is missing. Add it to your environment before connecting Zoho API.')
+  }
+
+  return { clientId, clientSecret }
+}
+
 function resolveZohoMailApiBaseUrl(account?: Pick<MailAccount, 'zohoRegion'> | null) {
   if (account?.zohoRegion) {
     return `https://mail.zoho.${account.zohoRegion}/api`
@@ -130,11 +145,12 @@ export async function refreshZohoAccessToken(account: MailAccount) {
   if (!account.zohoRefreshToken) {
     throw new Error(`Zoho refresh token missing for ${account.email}`)
   }
+  const { clientId, clientSecret } = requireZohoOAuthEnv()
 
   const params = new URLSearchParams({
     refresh_token: decrypt(account.zohoRefreshToken),
-    client_id: process.env.ZOHO_CLIENT_ID || '',
-    client_secret: process.env.ZOHO_CLIENT_SECRET || '',
+    client_id: clientId,
+    client_secret: clientSecret,
     grant_type: 'refresh_token',
   })
 
@@ -172,9 +188,10 @@ export async function refreshZohoAccessToken(account: MailAccount) {
 
 export function getZohoAuthUrl() {
   const redirectUri = `${process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'}/api/mail-accounts/zoho/callback`
+  const { clientId } = requireZohoOAuthEnv()
   const params = new URLSearchParams({
     scope: process.env.ZOHO_MAIL_OAUTH_SCOPE || 'ZohoMail.accounts.READ,ZohoMail.folders.READ,ZohoMail.messages.ALL',
-    client_id: process.env.ZOHO_CLIENT_ID || '',
+    client_id: clientId,
     response_type: 'code',
     access_type: 'offline',
     prompt: 'consent',
@@ -185,10 +202,11 @@ export function getZohoAuthUrl() {
 
 export async function exchangeZohoCode(code: string) {
   const redirectUri = `${process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'}/api/mail-accounts/zoho/callback`
+  const { clientId, clientSecret } = requireZohoOAuthEnv()
   const params = new URLSearchParams({
     code,
-    client_id: process.env.ZOHO_CLIENT_ID || '',
-    client_secret: process.env.ZOHO_CLIENT_SECRET || '',
+    client_id: clientId,
+    client_secret: clientSecret,
     redirect_uri: redirectUri,
     grant_type: 'authorization_code',
   })
