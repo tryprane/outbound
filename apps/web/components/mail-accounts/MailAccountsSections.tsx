@@ -1,6 +1,7 @@
 'use client'
 
 import { GmailOAuthButton } from '@/components/mail-accounts/GmailOAuthButton'
+import { ZohoOAuthButton } from '@/components/mail-accounts/ZohoOAuthButton'
 import {
   AccountHeader,
   ActionGrid,
@@ -18,6 +19,7 @@ import type {
   DomainHealthSnapshot,
   DomainHealthSummary,
   MailAccount,
+  MailboxMessage,
   WarmupLog,
   WarmupOverview,
   WarmupRecipient,
@@ -203,7 +205,18 @@ export function AccountsView(props: {
   handleWarmupAutoToggle: (id: string, current: boolean) => void
   handleUpdateMailDailyLimit: (id: string) => void
   handleReconnectGmail: () => void
+  handleReconnectZohoApi: () => void
   handleZohoImapToggle: (id: string, current: boolean) => void
+  handleOpenMailboxFolder: (mailAccountId: string, folderKind: 'INBOX' | 'SPAM') => void
+  handleMailboxAction: (
+    mailAccountId: string,
+    mailboxMessageId: string,
+    action: 'mark-read' | 'rescue-to-inbox' | 'reply'
+  ) => void
+  activeMailboxAccountId: string | null
+  activeMailboxFolder: 'INBOX' | 'SPAM'
+  mailboxMessages: MailboxMessage[]
+  mailboxLoading: boolean
   handleRunWarmupNow: (id: string) => void
   handleRunMailboxSyncNow: (id: string) => void
   handleToggleMailActive: (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => void
@@ -246,7 +259,8 @@ export function AccountsView(props: {
                     </div>
                     {account.type === 'zoho' ? (
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                        Zoho IMAP: {account.zohoImapEnabled === false ? 'OFF' : 'ON'}
+                        Connection: {account.mailboxConnectionMethod === 'api' ? 'Zoho API' : 'Zoho IMAP'}
+                        {account.mailboxConnectionMethod === 'imap' ? ` | IMAP ${account.zohoImapEnabled === false ? 'OFF' : 'ON'}` : ''}
                       </div>
                     ) : null}
                     {account.mailboxSyncError ? (
@@ -287,13 +301,17 @@ export function AccountsView(props: {
                       <button className="btn-ghost" onClick={() => props.handleWarmupAutoToggle(account.id, account.warmupAutoEnabled)}>Auto {account.warmupAutoEnabled ? 'ON' : 'OFF'}</button>
                       {account.type === 'gmail' ? (
                         <button className="btn-ghost" onClick={props.handleReconnectGmail}>Reconnect Gmail</button>
+                      ) : account.mailboxConnectionMethod === 'api' ? (
+                        <button className="btn-ghost" onClick={props.handleReconnectZohoApi}>Reconnect Zoho</button>
                       ) : (
                         <button className="btn-ghost" onClick={() => props.handleZohoImapToggle(account.id, account.zohoImapEnabled !== false)}>
                           IMAP {account.zohoImapEnabled === false ? 'OFF' : 'ON'}
                         </button>
                       )}
+                      <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'INBOX')} disabled={!account.mailboxSyncAvailable}>Open inbox</button>
+                      <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'SPAM')} disabled={!account.mailboxSyncAvailable}>Open spam</button>
                       <button className="btn-ghost" onClick={() => props.handleRunWarmupNow(account.id)} disabled={account.warmupStatus !== 'WARMING' || !account.warmupAutoEnabled}>Run warmup</button>
-                      <button className="btn-ghost" onClick={() => props.handleRunMailboxSyncNow(account.id)} disabled={account.type === 'zoho' && account.zohoImapEnabled === false}>Sync mailbox</button>
+                      <button className="btn-ghost" onClick={() => props.handleRunMailboxSyncNow(account.id)} disabled={!account.mailboxSyncAvailable}>Sync mailbox</button>
                       <button className="btn-ghost" onClick={() => props.handleToggleMailActive(account.id, account.isActive, account.warmupStatus)}>
                         {account.isActive ? 'Disable' : 'Enable'}
                       </button>
@@ -301,6 +319,52 @@ export function AccountsView(props: {
                     </ActionGrid>
                   </div>
                 </div>
+                {props.activeMailboxAccountId === account.id ? (
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {props.activeMailboxFolder === 'SPAM' ? 'Spam folder' : 'Inbox'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        {props.mailboxLoading ? 'Loading messages...' : `${props.mailboxMessages.length} recent messages`}
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      {props.mailboxMessages.length === 0 && !props.mailboxLoading ? (
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No synced messages in this folder yet.</div>
+                      ) : null}
+                      {props.mailboxMessages.map((message) => (
+                        <div key={message.id} style={{ ...surfaceCardStyle, padding: '12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                {message.subject || '(no subject)'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                From {message.fromEmail || 'Unknown'} | To {message.toEmail || 'Unknown'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                {message.receivedAt ? new Date(message.receivedAt).toLocaleString() : 'No timestamp'}
+                              </div>
+                              {message.snippet ? (
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>{message.snippet}</div>
+                              ) : null}
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignContent: 'start', justifyContent: 'flex-end' }}>
+                              {!message.isRead ? (
+                                <button className="btn-ghost" onClick={() => props.handleMailboxAction(account.id, message.id, 'mark-read')}>Mark read</button>
+                              ) : null}
+                              {message.isSpam ? (
+                                <button className="btn-ghost" onClick={() => props.handleMailboxAction(account.id, message.id, 'rescue-to-inbox')}>Move to inbox</button>
+                              ) : null}
+                              <button className="btn-ghost" onClick={() => props.handleMailboxAction(account.id, message.id, 'reply')}>Reply</button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
@@ -474,7 +538,12 @@ export function WarmupView(props: {
 }
 
 export function AddZohoView({ onAdded }: { onAdded: () => void }) {
-  return <div style={panelStyle}><ZohoAccountForm onAccountAdded={onAdded} /></div>
+  return (
+    <div style={{ display: 'grid', gap: '18px' }}>
+      <div style={panelStyle}><ZohoOAuthButton /></div>
+      <div style={panelStyle}><ZohoAccountForm onAccountAdded={onAdded} /></div>
+    </div>
+  )
 }
 
 export function AddGmailView() {

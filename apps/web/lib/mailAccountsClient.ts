@@ -3,6 +3,7 @@ import type {
   DomainHealthSummary,
   DomainDiagnostics,
   MailAccount,
+  MailboxMessage,
   WarmupLog,
   WarmupOverview,
   WarmupRecipient,
@@ -57,6 +58,20 @@ export async function patchMailAccount(body: Record<string, unknown>) {
 
 export async function deleteMailAccount(id: string) {
   return fetch(`/api/mail-accounts?id=${id}`, { method: 'DELETE' })
+}
+
+export async function fetchMailboxMessages(mailAccountId: string, folderKind?: string) {
+  const sp = new URLSearchParams({ resource: 'mailbox-messages', mailAccountId })
+  if (folderKind) sp.set('folderKind', folderKind)
+  return readJson<MailboxMessage[]>(`/api/mail-accounts?${sp.toString()}`, undefined, [])
+}
+
+export async function patchMailboxMessage(body: Record<string, unknown>) {
+  return fetch('/api/mail-accounts?resource=mailbox-messages', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 export async function patchWarmupRecipient(body: Record<string, unknown>) {

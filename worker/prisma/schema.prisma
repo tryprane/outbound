@@ -50,6 +50,15 @@ model MailAccount {
   accessToken  String?  // AES-256 encrypted
   refreshToken String?
   tokenExpiry  DateTime?
+  // Zoho OAuth / Mail API fields
+  zohoAccountId     String?
+  zohoRegion        String?
+  zohoAccessToken   String?  @db.Text
+  zohoRefreshToken  String?  @db.Text
+  zohoTokenExpiry   DateTime?
+  zohoMailboxMode   String   @default("imap") // imap|api
+  zohoLastTokenRefreshAt DateTime?
+  zohoAuthError     String?  @db.Text
   // Inbox sync / mailbox interaction fields
   imapHost     String?
   imapPort     Int?

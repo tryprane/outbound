@@ -5,10 +5,12 @@ import { getMailboxSyncQueue } from '@/lib/mailboxSyncQueue'
 import { getWhatsAppSessionQueue } from '@/lib/whatsappSessionQueue'
 import { getWarmupQueue } from '@/lib/warmupQueue'
 import { extractEmailDomain, providerHintFromType } from '@/lib/campaignGuardrails'
+import { markMailboxMessageAsRead, rescueMailboxMessageToInbox, replyToMailboxMessage } from '@/lib/mailboxActions'
 
 const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
 type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
 const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox'
+const ZOHO_API_RECONNECT_MESSAGE = 'Reconnect Zoho account to restore mailbox API access'
 
 function recommendedLimitFromStage(stage: number): number {
   const idx = Math.max(0, Math.min(stage, WARMUP_LIMIT_PLAN.length - 1))
@@ -323,8 +325,12 @@ export async function GET(request: NextRequest) {
     }
     if (resource === 'mailbox-messages') {
       const mailAccountId = request.nextUrl.searchParams.get('mailAccountId') || undefined
+      const folderKind = request.nextUrl.searchParams.get('folderKind') || undefined
       const messages = await prisma.mailboxMessage.findMany({
-        where: mailAccountId ? { mailAccountId } : undefined,
+        where: {
+          ...(mailAccountId ? { mailAccountId } : {}),
+          ...(folderKind ? { folderKind: folderKind as 'INBOX' | 'SPAM' | 'SENT' | 'ARCHIVE' | 'OTHER' } : {}),
+        },
         orderBy: [{ receivedAt: 'desc' }, { sentAt: 'desc' }],
         take: 100,
         select: {
@@ -448,6 +454,13 @@ export async function GET(request: NextRequest) {
         lastMailSentAt: true,
         lastResetAt: true,
         tokenExpiry: true,
+        zohoRefreshToken: true,
+        zohoAccountId: true,
+        zohoRegion: true,
+        zohoTokenExpiry: true,
+        zohoMailboxMode: true,
+        zohoLastTokenRefreshAt: true,
+        zohoAuthError: true,
         imapHost: true,
         imapPort: true,
         imapSecure: true,
@@ -501,12 +514,28 @@ export async function GET(request: NextRequest) {
     const withWarmupStats = accounts.map((account) => {
       const stats = statsByAccount.get(account.id) || { total: 0, sent: 0, failed: 0, bounced: 0 }
       const successRate = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100) : 0
-      const zohoImapEnabled = account.type !== 'zoho' || account.mailboxSyncError !== ZOHO_IMAP_DISABLED_MESSAGE
+      const { zohoRefreshToken, ...safeAccount } = account
+      const zohoImapEnabled =
+        safeAccount.type !== 'zoho' ||
+        safeAccount.zohoMailboxMode !== 'imap' ||
+        safeAccount.mailboxSyncError !== ZOHO_IMAP_DISABLED_MESSAGE
+      const mailboxConnectionMethod =
+        safeAccount.type === 'zoho' ? safeAccount.zohoMailboxMode : safeAccount.type === 'gmail' ? 'oauth' : 'unknown'
+      const zohoApiConnected = safeAccount.type === 'zoho' && safeAccount.zohoMailboxMode === 'api' && Boolean(zohoRefreshToken)
+      const mailboxSyncAvailable =
+        safeAccount.type === 'gmail' ||
+        (safeAccount.type === 'zoho' && (
+          (safeAccount.zohoMailboxMode === 'api' && zohoApiConnected) ||
+          (safeAccount.zohoMailboxMode === 'imap' && zohoImapEnabled)
+        ))
       return {
-        ...account,
+        ...safeAccount,
+        mailboxConnectionMethod,
+        zohoApiConnected,
+        mailboxSyncAvailable,
         zohoImapEnabled,
         mailboxSyncError:
-          account.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE ? null : account.mailboxSyncError,
+          safeAccount.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE ? null : safeAccount.mailboxSyncError,
         warmupStats7d: {
           ...stats,
           successRate,
@@ -698,6 +727,83 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true, recipient })
     }
 
+    if (resource === 'mailbox-messages') {
+      const body = await request.json() as {
+        mailAccountId: string
+        mailboxMessageId: string
+        action: 'mark-read' | 'rescue-to-inbox' | 'reply'
+        subject?: string
+        html?: string
+      }
+
+      if (!body.mailAccountId || !body.mailboxMessageId || !body.action) {
+        return NextResponse.json({ error: 'mailAccountId, mailboxMessageId, and action are required' }, { status: 400 })
+      }
+
+      const [account, message] = await Promise.all([
+        prisma.mailAccount.findUnique({ where: { id: body.mailAccountId } }),
+        prisma.mailboxMessage.findUnique({ where: { id: body.mailboxMessageId } }),
+      ])
+
+      if (!account || !message || message.mailAccountId !== body.mailAccountId) {
+        return NextResponse.json({ error: 'Mailbox message not found' }, { status: 404 })
+      }
+
+      const messageRef = {
+        providerMessageId: message.providerMessageId,
+        providerThreadId: message.providerThreadId,
+        fromEmail: message.fromEmail,
+        toEmail: message.toEmail,
+        subject: message.subject,
+        metadata: (message.metadata as Record<string, unknown> | null) ?? null,
+      }
+
+      if (body.action === 'mark-read') {
+        await markMailboxMessageAsRead(account, messageRef)
+        await prisma.mailboxMessage.update({
+          where: { id: message.id },
+          data: {
+            isRead: true,
+            openedAt: message.openedAt ?? new Date(),
+          },
+        })
+        return NextResponse.json({ success: true })
+      }
+
+      if (body.action === 'rescue-to-inbox') {
+        await rescueMailboxMessageToInbox(account, messageRef)
+        await prisma.mailboxMessage.update({
+          where: { id: message.id },
+          data: {
+            isRead: true,
+            isSpam: false,
+            folderKind: 'INBOX',
+            folderName: 'Inbox',
+            rescuedAt: new Date(),
+            openedAt: message.openedAt ?? new Date(),
+          },
+        })
+        return NextResponse.json({ success: true })
+      }
+
+      const subject = body.subject?.trim() || (message.subject?.trim().startsWith('Re:') ? message.subject : `Re: ${message.subject || 'Quick follow-up'}`)
+      const html = body.html?.trim()
+      if (!html) {
+        return NextResponse.json({ error: 'Reply body is required' }, { status: 400 })
+      }
+
+      await replyToMailboxMessage(account, messageRef, { subject, html })
+      await prisma.mailboxMessage.update({
+        where: { id: message.id },
+        data: {
+          repliedAt: new Date(),
+          isRead: true,
+          openedAt: message.openedAt ?? new Date(),
+        },
+      })
+      return NextResponse.json({ success: true })
+    }
+
     const body = await request.json() as {
       id: string
       isActive?: boolean
@@ -706,10 +812,11 @@ export async function PATCH(request: NextRequest) {
       warmupStage?: number
       warmupAutoEnabled?: boolean
       zohoImapEnabled?: boolean
+      zohoMailboxMode?: 'imap' | 'api'
       runWarmupNow?: boolean
       runMailboxSyncNow?: boolean
     }
-    const { id, isActive, dailyLimit, warmupStatus, warmupStage, warmupAutoEnabled, zohoImapEnabled, runWarmupNow, runMailboxSyncNow } = body
+    const { id, isActive, dailyLimit, warmupStatus, warmupStage, warmupAutoEnabled, zohoImapEnabled, zohoMailboxMode, runWarmupNow, runMailboxSyncNow } = body
 
     const account = await prisma.mailAccount.findUnique({ where: { id } })
     if (!account) {
@@ -744,7 +851,14 @@ export async function PATCH(request: NextRequest) {
       ...(warmupAutoEnabled !== undefined ? { warmupAutoEnabled } : {}),
     }
 
-    if (zohoImapEnabled !== undefined && account.type === 'zoho') {
+    if (zohoMailboxMode && account.type === 'zoho') {
+      data.zohoMailboxMode = zohoMailboxMode
+      data.mailboxSyncStatus = 'idle'
+      data.mailboxSyncError = null
+      data.zohoAuthError = null
+    }
+
+    if (zohoImapEnabled !== undefined && account.type === 'zoho' && (zohoMailboxMode ?? account.zohoMailboxMode) === 'imap') {
       data.mailboxSyncStatus = 'idle'
       data.mailboxSyncError = zohoImapEnabled ? null : ZOHO_IMAP_DISABLED_MESSAGE
     }
@@ -811,9 +925,15 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (runMailboxSyncNow) {
-      if (updated.type === 'zoho' && updated.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE) {
+      if (updated.type === 'zoho' && updated.zohoMailboxMode === 'imap' && updated.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE) {
         return NextResponse.json(
           { error: 'Zoho IMAP is OFF for this mailbox. Turn it on before syncing.' },
+          { status: 400 }
+        )
+      }
+      if (updated.type === 'zoho' && updated.zohoMailboxMode === 'api' && (!updated.zohoRefreshToken || updated.zohoAuthError === ZOHO_API_RECONNECT_MESSAGE)) {
+        return NextResponse.json(
+          { error: 'Reconnect Zoho before syncing this mailbox.' },
           { status: 400 }
         )
       }
