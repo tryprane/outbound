@@ -6,7 +6,11 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code')
   const error = request.nextUrl.searchParams.get('error')
-  const baseUrl = request.nextUrl.origin
+  // Use the explicitly configured public URL — request.nextUrl.origin returns
+  // the internal k8s pod hostname (e.g. outbound-web-xxx:3000) behind an ingress.
+  const baseUrl =
+    (process.env.NEXTAUTH_URL || process.env.PUBLIC_URL || '').replace(/\/+$/, '') ||
+    request.nextUrl.origin
 
   if (error) {
     return NextResponse.redirect(
