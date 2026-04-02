@@ -67,6 +67,7 @@ function MailAccountsPageContent() {
           handleUpdateMailDailyLimit={dashboard.handleUpdateMailDailyLimit}
           handleReconnectGmail={dashboard.handleReconnectGmail}
           handleReconnectZohoApi={dashboard.handleReconnectZohoApi}
+          handleUseZohoApi={dashboard.handleUseZohoApi}
           handleZohoImapToggle={dashboard.handleZohoImapToggle}
           handleOpenMailboxFolder={dashboard.handleOpenMailboxFolder}
           handleMailboxAction={dashboard.handleMailboxAction}

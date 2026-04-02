@@ -147,6 +147,10 @@ export function useMailAccountsDashboard() {
     await handlePatchMailAccount({ id, zohoImapEnabled: !current }, `Zoho IMAP turned ${current ? 'off' : 'on'}`)
   }, [handlePatchMailAccount])
 
+  const handleUseZohoApi = useCallback(async (id: string) => {
+    await handlePatchMailAccount({ id, zohoMailboxMode: 'api' }, 'Zoho mailbox switched to API mode')
+  }, [handlePatchMailAccount])
+
   const handleOpenMailboxFolder = useCallback(async (mailAccountId: string, folderKind: 'INBOX' | 'SPAM') => {
     setActiveMailboxAccountId(mailAccountId)
     setActiveMailboxFolder(folderKind)
@@ -391,6 +395,7 @@ export function useMailAccountsDashboard() {
     handleWarmupAutoToggle,
     handleUpdateMailDailyLimit,
     handleZohoImapToggle,
+    handleUseZohoApi,
     handleOpenMailboxFolder,
     handleMailboxAction,
     handleCreateWarmupRecipient,
