@@ -1,12 +1,15 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getZohoAuthUrl } from '@/lib/zohoMailApi'
 
-export async function GET() {
+export const dynamic = 'force-dynamic'
+
+export async function GET(request: NextRequest) {
+  const baseUrl = request.nextUrl.origin
+
   try {
-    return NextResponse.redirect(getZohoAuthUrl())
+    return NextResponse.redirect(getZohoAuthUrl(baseUrl))
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to start Zoho OAuth'
-    const baseUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'
     return NextResponse.redirect(
       `${baseUrl}/mail-accounts?error=${encodeURIComponent(message)}`
     )
