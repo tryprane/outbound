@@ -30,13 +30,13 @@ export function ZohoOAuthButton() {
         Z
       </div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '2px' }}>Connect Zoho Free Mailbox</div>
+        <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '2px' }}>Add Zoho API to the same mailbox</div>
         <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          Uses Zoho OAuth and Mail APIs for inbox sync, spam rescue, and replies without relying on IMAP.
+          This does not create a second sender. If you connect the same email you saved with SMTP, the app upgrades that same mailbox with inbox sync, spam rescue, and reply actions through Zoho API.
         </div>
       </div>
       <button className="btn-primary" onClick={() => { window.location.href = '/api/mail-accounts/zoho/connect' }}>
-        Connect Zoho API
+        Connect Same Mailbox
       </button>
     </div>
   )

@@ -521,7 +521,7 @@ export async function GET(request: NextRequest) {
         safeAccount.mailboxSyncError !== ZOHO_IMAP_DISABLED_MESSAGE
       const mailboxConnectionMethod =
         safeAccount.type === 'zoho' ? safeAccount.zohoMailboxMode : safeAccount.type === 'gmail' ? 'oauth' : 'unknown'
-      const zohoApiConnected = safeAccount.type === 'zoho' && safeAccount.zohoMailboxMode === 'api' && Boolean(zohoRefreshToken)
+      const zohoApiConnected = safeAccount.type === 'zoho' && Boolean(zohoRefreshToken)
       const mailboxSyncAvailable =
         safeAccount.type === 'gmail' ||
         (safeAccount.type === 'zoho' && (

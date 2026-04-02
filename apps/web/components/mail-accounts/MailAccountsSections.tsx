@@ -206,6 +206,7 @@ export function AccountsView(props: {
   handleUpdateMailDailyLimit: (id: string) => void
   handleReconnectGmail: () => void
   handleReconnectZohoApi: () => void
+  handleUseZohoApi: (id: string) => void
   handleZohoImapToggle: (id: string, current: boolean) => void
   handleOpenMailboxFolder: (mailAccountId: string, folderKind: 'INBOX' | 'SPAM') => void
   handleMailboxAction: (
@@ -259,7 +260,8 @@ export function AccountsView(props: {
                     </div>
                     {account.type === 'zoho' ? (
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                        Connection: {account.mailboxConnectionMethod === 'api' ? 'Zoho API' : 'Zoho IMAP'}
+                        Sending: SMTP | Inbox tools: {account.zohoApiConnected ? 'Zoho API ready' : 'IMAP only'}
+                        {' | '}Active inbox mode: {account.mailboxConnectionMethod === 'api' ? 'Zoho API' : 'Zoho IMAP'}
                         {account.mailboxConnectionMethod === 'imap' ? ` | IMAP ${account.zohoImapEnabled === false ? 'OFF' : 'ON'}` : ''}
                       </div>
                     ) : null}
@@ -301,12 +303,21 @@ export function AccountsView(props: {
                       <button className="btn-ghost" onClick={() => props.handleWarmupAutoToggle(account.id, account.warmupAutoEnabled)}>Auto {account.warmupAutoEnabled ? 'ON' : 'OFF'}</button>
                       {account.type === 'gmail' ? (
                         <button className="btn-ghost" onClick={props.handleReconnectGmail}>Reconnect Gmail</button>
-                      ) : account.mailboxConnectionMethod === 'api' ? (
-                        <button className="btn-ghost" onClick={props.handleReconnectZohoApi}>Reconnect Zoho</button>
                       ) : (
-                        <button className="btn-ghost" onClick={() => props.handleZohoImapToggle(account.id, account.zohoImapEnabled !== false)}>
-                          IMAP {account.zohoImapEnabled === false ? 'OFF' : 'ON'}
-                        </button>
+                        <>
+                          {!account.zohoApiConnected ? (
+                            <button className="btn-ghost" onClick={props.handleReconnectZohoApi}>Connect Zoho API</button>
+                          ) : account.mailboxConnectionMethod === 'api' ? (
+                            <button className="btn-ghost" onClick={props.handleReconnectZohoApi}>Reconnect Zoho API</button>
+                          ) : (
+                            <button className="btn-ghost" onClick={() => props.handleUseZohoApi(account.id)}>Use Zoho API</button>
+                          )}
+                          {account.mailboxConnectionMethod === 'imap' ? (
+                            <button className="btn-ghost" onClick={() => props.handleZohoImapToggle(account.id, account.zohoImapEnabled !== false)}>
+                              IMAP {account.zohoImapEnabled === false ? 'OFF' : 'ON'}
+                            </button>
+                          ) : null}
+                        </>
                       )}
                       <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'INBOX')} disabled={!account.mailboxSyncAvailable}>Open inbox</button>
                       <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'SPAM')} disabled={!account.mailboxSyncAvailable}>Open spam</button>
@@ -540,6 +551,12 @@ export function WarmupView(props: {
 export function AddZohoView({ onAdded }: { onAdded: () => void }) {
   return (
     <div style={{ display: 'grid', gap: '18px' }}>
+      <div style={{ ...panelStyle, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+        Zoho works best here as one mailbox with two layers.
+        SMTP handles outbound sending.
+        Zoho API is optional and adds inbox sync, spam rescue, and reply actions.
+        If you connect the same email in both steps, the system keeps one mailbox record and stores both capabilities on it.
+      </div>
       <div style={panelStyle}><ZohoOAuthButton /></div>
       <div style={panelStyle}><ZohoAccountForm onAccountAdded={onAdded} /></div>
     </div>

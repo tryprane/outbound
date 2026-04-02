@@ -112,6 +112,10 @@ export function ZohoAccountForm({ onAccountAdded }: ZohoAccountFormProps) {
 
   return (
     <div>
+      <div style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+        Step 1: connect Zoho SMTP for sending. After that, you can attach Zoho API for the same email address to unlock inbox sync, spam rescue, and reply actions without creating a second account.
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
         {/* Display Name */}
         <div>
