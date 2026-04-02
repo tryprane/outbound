@@ -10,6 +10,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
+dump_schema_sync_debug() {
+  local namespace="$1"
+  echo "----- outbound-schema-sync jobs/pods -----"
+  kubectl -n "$namespace" get jobs,pods -o wide || true
+  echo "----- outbound-schema-sync describe job -----"
+  kubectl -n "$namespace" describe job outbound-schema-sync || true
+  echo "----- outbound-schema-sync pod describe -----"
+  kubectl -n "$namespace" describe pod -l job-name=outbound-schema-sync || true
+  echo "----- outbound-schema-sync logs -----"
+  kubectl -n "$namespace" logs job/outbound-schema-sync --all-containers=true --tail=-1 || true
+}
+
 require_var() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
@@ -103,7 +115,10 @@ kubectl -n "$NAMESPACE" rollout status deployment/outbound-redis --timeout=10m
 
 kubectl delete job outbound-schema-sync -n "$NAMESPACE" --ignore-not-found
 kubectl apply -f "$RENDER_DIR/job.yaml"
-kubectl -n "$NAMESPACE" wait --for=condition=complete job/outbound-schema-sync --timeout=10m
+if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/outbound-schema-sync --timeout=12m; then
+  dump_schema_sync_debug "$NAMESPACE"
+  exit 1
+fi
 
 kubectl apply -f "$RENDER_DIR/app.yaml"
 kubectl -n "$NAMESPACE" rollout status deployment/outbound-web --timeout=10m
