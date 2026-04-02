@@ -186,8 +186,8 @@ export async function refreshZohoAccessToken(account: MailAccount) {
   })
 }
 
-export function getZohoAuthUrl() {
-  const redirectUri = `${process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'}/api/mail-accounts/zoho/callback`
+export function getZohoAuthUrl(baseUrl?: string) {
+  const redirectUri = `${baseUrl || process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'}/api/mail-accounts/zoho/callback`
   const { clientId } = requireZohoOAuthEnv()
   const params = new URLSearchParams({
     scope: process.env.ZOHO_MAIL_OAUTH_SCOPE || 'ZohoMail.accounts.READ,ZohoMail.folders.READ,ZohoMail.messages.ALL',
@@ -201,7 +201,11 @@ export function getZohoAuthUrl() {
 }
 
 export async function exchangeZohoCode(code: string) {
-  const redirectUri = `${process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'}/api/mail-accounts/zoho/callback`
+  return exchangeZohoCodeWithBaseUrl(code)
+}
+
+export async function exchangeZohoCodeWithBaseUrl(code: string, baseUrl?: string) {
+  const redirectUri = `${baseUrl || process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'}/api/mail-accounts/zoho/callback`
   const { clientId, clientSecret } = requireZohoOAuthEnv()
   const params = new URLSearchParams({
     code,
