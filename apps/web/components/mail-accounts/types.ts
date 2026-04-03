@@ -25,6 +25,9 @@ export interface MailAccount {
   zohoAuthError?: string | null
   mailboxConnectionMethod?: 'imap' | 'api' | 'oauth' | 'unknown'
   zohoApiConnected?: boolean
+  zohoSmtpConnected?: boolean
+  zohoSetupStatus?: 'complete' | 'pending_oauth' | 'pending_smtp' | 'pending_both'
+  connectionReady?: boolean
   mailboxSyncAvailable?: boolean
   imapHost: string | null
   imapPort: number | null

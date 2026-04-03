@@ -440,6 +440,9 @@ export async function GET(request: NextRequest) {
         type: true,
         email: true,
         displayName: true,
+        smtpHost: true,
+        smtpPort: true,
+        smtpPassword: true,
         dailyLimit: true,
         sentToday: true,
         isActive: true,
@@ -514,7 +517,7 @@ export async function GET(request: NextRequest) {
     const withWarmupStats = accounts.map((account) => {
       const stats = statsByAccount.get(account.id) || { total: 0, sent: 0, failed: 0, bounced: 0 }
       const successRate = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100) : 0
-      const { zohoRefreshToken, ...safeAccount } = account
+      const { zohoRefreshToken, smtpPassword, ...safeAccount } = account
       const zohoImapEnabled =
         safeAccount.type !== 'zoho' ||
         safeAccount.zohoMailboxMode !== 'imap' ||
@@ -522,6 +525,17 @@ export async function GET(request: NextRequest) {
       const mailboxConnectionMethod =
         safeAccount.type === 'zoho' ? safeAccount.zohoMailboxMode : safeAccount.type === 'gmail' ? 'oauth' : 'unknown'
       const zohoApiConnected = safeAccount.type === 'zoho' && Boolean(zohoRefreshToken)
+      const zohoSmtpConnected = safeAccount.type === 'zoho' && Boolean(safeAccount.smtpHost && safeAccount.smtpPort && smtpPassword)
+      const zohoSetupStatus =
+        safeAccount.type !== 'zoho'
+          ? 'complete'
+          : zohoSmtpConnected && zohoApiConnected
+            ? 'complete'
+            : zohoSmtpConnected
+              ? 'pending_oauth'
+              : zohoApiConnected
+                ? 'pending_smtp'
+                : 'pending_both'
       const mailboxSyncAvailable =
         safeAccount.type === 'gmail' ||
         (safeAccount.type === 'zoho' && (
@@ -532,6 +546,9 @@ export async function GET(request: NextRequest) {
         ...safeAccount,
         mailboxConnectionMethod,
         zohoApiConnected,
+        zohoSmtpConnected,
+        zohoSetupStatus,
+        connectionReady: safeAccount.type === 'zoho' ? zohoSetupStatus === 'complete' : true,
         mailboxSyncAvailable,
         zohoImapEnabled,
         mailboxSyncError:

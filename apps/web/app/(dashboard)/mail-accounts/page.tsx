@@ -110,9 +110,8 @@ function MailAccountsPageContent() {
       {dashboard.activeTab === 'add-zoho' ? (
         <AddZohoView
           onAdded={() => {
-            dashboard.setActiveTab('accounts')
             void dashboard.loadAll()
-            dashboard.showToast('success', 'Zoho account connected')
+            dashboard.showToast('success', 'Zoho setup step saved')
           }}
         />
       ) : null}

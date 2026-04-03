@@ -205,6 +205,8 @@ model WhatsAppAccount {
 
   campaigns          CampaignWhatsAppAccount[]
   sentMessages       SentWhatsAppMessage[]
+  conversations      WhatsAppConversation[]
+  conversationMessages WhatsAppConversationMessage[]
   apiDispatchRequests ApiDispatchRequest[] @relation("SelectedWhatsAppAccount")
 
   @@index([connectionStatus])
@@ -228,6 +230,7 @@ model SentWhatsAppMessage {
   campaignId       String?
   csvRowId         String?
   whatsappAccountId String
+  providerMessageId String?
   apiDispatchRequestId String? @unique
   toPhone          String
   message          String   @db.Text
@@ -242,8 +245,48 @@ model SentWhatsAppMessage {
 
   @@index([campaignId])
   @@index([whatsappAccountId])
+  @@index([providerMessageId])
   @@index([apiDispatchRequestId])
   @@index([sentAt])
+}
+
+model WhatsAppConversation {
+  id               String   @id @default(cuid())
+  whatsappAccountId String
+  participantJid   String
+  participantPhone String?
+  participantName  String?
+  isManaged        Boolean  @default(true)
+  lastMessageAt    DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  whatsappAccount WhatsAppAccount              @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  messages        WhatsAppConversationMessage[]
+
+  @@unique([whatsappAccountId, participantJid])
+  @@index([whatsappAccountId, lastMessageAt])
+}
+
+model WhatsAppConversationMessage {
+  id               String   @id @default(cuid())
+  conversationId   String
+  whatsappAccountId String
+  providerMessageId String?
+  direction        String   // inbound|outbound
+  body             String   @db.Text
+  status           String?
+  sentAt           DateTime?
+  receivedAt       DateTime?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  conversation    WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  whatsappAccount WhatsAppAccount      @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([whatsappAccountId, providerMessageId])
+  @@index([conversationId, createdAt])
+  @@index([whatsappAccountId, createdAt])
 }
 
 model SentMail {

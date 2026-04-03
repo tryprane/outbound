@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { GmailOAuthButton } from '@/components/mail-accounts/GmailOAuthButton'
 import { ZohoOAuthButton } from '@/components/mail-accounts/ZohoOAuthButton'
 import {
@@ -208,14 +209,14 @@ export function AccountsView(props: {
   handleReconnectZohoApi: () => void
   handleUseZohoApi: (id: string) => void
   handleZohoImapToggle: (id: string, current: boolean) => void
-  handleOpenMailboxFolder: (mailAccountId: string, folderKind: 'INBOX' | 'SPAM') => void
+  handleOpenMailboxFolder: (mailAccountId: string, folderKind: 'INBOX' | 'SPAM' | 'SENT') => void
   handleMailboxAction: (
     mailAccountId: string,
     mailboxMessageId: string,
     action: 'mark-read' | 'rescue-to-inbox' | 'reply'
   ) => void
   activeMailboxAccountId: string | null
-  activeMailboxFolder: 'INBOX' | 'SPAM'
+  activeMailboxFolder: 'INBOX' | 'SPAM' | 'SENT'
   mailboxMessages: MailboxMessage[]
   mailboxLoading: boolean
   handleRunWarmupNow: (id: string) => void
@@ -245,7 +246,7 @@ export function AccountsView(props: {
                       title={account.email}
                       providerLabel={account.type}
                       statusLabel={`${account.warmupStatus} • Stage ${account.warmupStage + 1}`}
-                      secondaryStatus={account.isActive ? 'Campaign active' : 'Campaign inactive'}
+                      secondaryStatus={account.type === 'zoho' && account.connectionReady === false ? 'Setup incomplete' : account.isActive ? 'Campaign active' : 'Campaign inactive'}
                     />
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '10px', marginTop: '14px' }}>
                       <MetricPair label="Warmup 7d" value={`${account.warmupStats7d.successRate}% (${account.warmupStats7d.sent}/${account.warmupStats7d.total})`} />
@@ -260,9 +261,14 @@ export function AccountsView(props: {
                     </div>
                     {account.type === 'zoho' ? (
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                        Sending: SMTP | Inbox tools: {account.zohoApiConnected ? 'Zoho API ready' : 'IMAP only'}
+                        Zoho setup: {account.zohoSetupStatus === 'complete' ? 'SMTP + OAuth connected' : account.zohoSetupStatus === 'pending_oauth' ? 'SMTP connected, OAuth pending' : account.zohoSetupStatus === 'pending_smtp' ? 'OAuth connected, SMTP pending' : 'SMTP + OAuth pending'}
                         {' | '}Active inbox mode: {account.mailboxConnectionMethod === 'api' ? 'Zoho API' : 'Zoho IMAP'}
                         {account.mailboxConnectionMethod === 'imap' ? ` | IMAP ${account.zohoImapEnabled === false ? 'OFF' : 'ON'}` : ''}
+                      </div>
+                    ) : null}
+                    {account.type === 'zoho' && account.connectionReady === false ? (
+                      <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '12px', border: '1px solid rgba(245,158,11,0.22)', background: 'rgba(245,158,11,0.08)', color: 'var(--warning)', fontSize: '12px' }}>
+                        This mailbox is kept in one matched record, but campaign activation should wait until SMTP and OAuth are both attached to the same Zoho email.
                       </div>
                     ) : null}
                     {account.mailboxSyncError ? (
@@ -321,6 +327,7 @@ export function AccountsView(props: {
                       )}
                       <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'INBOX')} disabled={!account.mailboxSyncAvailable}>Open inbox</button>
                       <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'SPAM')} disabled={!account.mailboxSyncAvailable}>Open spam</button>
+                      <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'SENT')} disabled={!account.mailboxSyncAvailable}>Open sent</button>
                       <button className="btn-ghost" onClick={() => props.handleRunWarmupNow(account.id)} disabled={account.warmupStatus !== 'WARMING' || !account.warmupAutoEnabled}>Run warmup</button>
                       <button className="btn-ghost" onClick={() => props.handleRunMailboxSyncNow(account.id)} disabled={!account.mailboxSyncAvailable}>Sync mailbox</button>
                       <button className="btn-ghost" onClick={() => props.handleToggleMailActive(account.id, account.isActive, account.warmupStatus)}>
@@ -334,7 +341,7 @@ export function AccountsView(props: {
                   <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
                       <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {props.activeMailboxFolder === 'SPAM' ? 'Spam folder' : 'Inbox'}
+                        {props.activeMailboxFolder === 'SPAM' ? 'Spam folder' : props.activeMailboxFolder === 'SENT' ? 'Sent folder' : 'Inbox'}
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {props.mailboxLoading ? 'Loading messages...' : `${props.mailboxMessages.length} recent messages`}
@@ -355,7 +362,7 @@ export function AccountsView(props: {
                                 From {message.fromEmail || 'Unknown'} | To {message.toEmail || 'Unknown'}
                               </div>
                               <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                {message.receivedAt ? new Date(message.receivedAt).toLocaleString() : 'No timestamp'}
+                                {message.receivedAt || message.sentAt ? new Date(message.receivedAt || message.sentAt || '').toLocaleString() : 'No timestamp'}
                               </div>
                               {message.snippet ? (
                                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>{message.snippet}</div>
@@ -368,7 +375,9 @@ export function AccountsView(props: {
                               {message.isSpam ? (
                                 <button className="btn-ghost" onClick={() => props.handleMailboxAction(account.id, message.id, 'rescue-to-inbox')}>Move to inbox</button>
                               ) : null}
-                              <button className="btn-ghost" onClick={() => props.handleMailboxAction(account.id, message.id, 'reply')}>Reply</button>
+                              {message.direction === 'inbound' ? (
+                                <button className="btn-ghost" onClick={() => props.handleMailboxAction(account.id, message.id, 'reply')}>Reply</button>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -548,18 +557,236 @@ export function WarmupView(props: {
   )
 }
 
-export function AddZohoView({ onAdded }: { onAdded: () => void }) {
+function ZohoDualSetupPanel({ onBothConnected }: { onBothConnected: () => void }) {
+  const [smtpDone, setSmtpDone] = useState(false)
+  const [oauthDone, setOauthDone] = useState(false)
+  const bothDone = smtpDone && oauthDone
+
+  const stepPanelStyle = (done: boolean): React.CSSProperties => ({
+    ...panelStyle,
+    border: done
+      ? '1.5px solid rgba(34,211,165,0.35)'
+      : '1px solid rgba(255,255,255,0.08)',
+    position: 'relative',
+    transition: 'border-color 0.25s',
+  })
+
+  const badgeStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: '14px',
+    right: '14px',
+    padding: '3px 10px',
+    borderRadius: '999px',
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+  }
+
   return (
     <div style={{ display: 'grid', gap: '18px' }}>
-      <div style={{ ...panelStyle, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-        Zoho works best here as one mailbox with two layers.
-        SMTP handles outbound sending.
-        Zoho API is optional and adds inbox sync, spam rescue, and reply actions.
-        If you connect the same email in both steps, the system keeps one mailbox record and stores both capabilities on it.
+      {/* Step 1 — SMTP */}
+      <div style={stepPanelStyle(smtpDone)}>
+        {smtpDone ? (
+          <div style={{ ...badgeStyle, background: 'rgba(34,211,165,0.14)', color: 'var(--success)' }}>
+            ✓ Connected
+          </div>
+        ) : (
+          <div style={{ ...badgeStyle, background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
+            Step 1
+          </div>
+        )}
+        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>SMTP — outbound sending</div>
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.6 }}>
+          Required for campaigns. Connects the Zoho mailbox as a sending account.
+        </div>
+        {smtpDone ? (
+          <div style={{ fontSize: '13px', color: 'var(--success)' }}>SMTP credentials saved successfully.</div>
+        ) : (
+          <ZohoAccountForm
+            onAccountAdded={() => setSmtpDone(true)}
+          />
+        )}
       </div>
-      <div style={panelStyle}><ZohoOAuthButton /></div>
-      <div style={panelStyle}><ZohoAccountForm onAccountAdded={onAdded} /></div>
+
+      {/* Step 2 — OAuth */}
+      <div style={stepPanelStyle(oauthDone)}>
+        {oauthDone ? (
+          <div style={{ ...badgeStyle, background: 'rgba(34,211,165,0.14)', color: 'var(--success)' }}>
+            ✓ Connected
+          </div>
+        ) : (
+          <div style={{ ...badgeStyle, background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }}>
+            Step 2
+          </div>
+        )}
+        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Zoho OAuth — inbox sync & tools</div>
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.6 }}>
+          Unlocks inbox sync, spam rescue, and reply actions. Use the same email address as SMTP above — the app upgrades that same mailbox record automatically.
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            padding: '16px',
+            border: '2px dashed rgba(255,255,255,0.1)',
+            borderRadius: '12px',
+            background: 'rgba(255,255,255,0.02)',
+          }}
+        >
+          <div
+            style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              background: 'rgba(37,99,235,0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#93c5fd',
+              fontWeight: 800,
+              fontSize: '20px',
+              flexShrink: 0,
+            }}
+          >
+            Z
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>Connect Zoho OAuth</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+              You will be redirected to Zoho to authorize access. When done, come back and this panel will update.
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+            <button
+              className="btn-primary"
+              onClick={() => { window.location.href = '/api/mail-accounts/zoho/connect' }}
+            >
+              Connect via OAuth
+            </button>
+            {!oauthDone && (
+              <button
+                className="btn-ghost"
+                style={{ fontSize: '11px' }}
+                onClick={() => setOauthDone(true)}
+              >
+                I already connected OAuth ✓
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Save button — only when both done */}
+      {bothDone ? (
+        <div
+          style={{
+            ...panelStyle,
+            background: 'rgba(34,211,165,0.06)',
+            border: '1.5px solid rgba(34,211,165,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--success)' }}>✓ Both connections ready</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              SMTP and OAuth are both attached. Click Save to finish and load the account into the dashboard.
+            </div>
+          </div>
+          <button
+            className="btn-primary"
+            style={{ background: 'rgba(34,211,165,0.9)', color: '#000', minWidth: '160px' }}
+            onClick={onBothConnected}
+          >
+            Save &amp; Connect Zoho Account
+          </button>
+        </div>
+      ) : (
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '6px 0' }}>
+          Complete both steps above to enable the Save button.
+        </div>
+      )}
     </div>
+  )
+}
+
+export function AddZohoView({ onAdded }: { onAdded: () => void }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <>
+      <div style={{ display: 'grid', gap: '18px' }}>
+        <div style={{ ...panelStyle, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          Zoho mailboxes are tracked as one shared account record.
+          Use the button below to open the setup modal, connect both SMTP and OAuth for the same email address, and save.
+          The dashboard will only treat the mailbox as fully ready after both SMTP and OAuth are linked.
+        </div>
+        <div style={panelStyle}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>Connect new Zoho mail account</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: 1.7 }}>
+                First attach SMTP for sending or OAuth for inbox tools.
+                Then complete the missing side using the same email address so the database keeps one matched mailbox record.
+              </div>
+            </div>
+            <button className="btn-primary" onClick={() => setOpen(true)}>
+              Connect new Zoho account
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {open ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 120,
+            background: 'rgba(4,6,12,0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+          }}
+        >
+          <div
+            style={{
+              width: 'min(980px, 100%)',
+              maxHeight: 'calc(100vh - 48px)',
+              overflowY: 'auto',
+              borderRadius: '24px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'linear-gradient(180deg, rgba(16,16,24,0.98), rgba(10,10,16,0.98))',
+              boxShadow: '0 26px 80px rgba(0,0,0,0.4)',
+              padding: '22px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '18px' }}>
+              <div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>New Zoho mailbox setup</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.7, maxWidth: '760px' }}>
+                  Connect <strong>both SMTP and OAuth</strong> for the same Zoho email address below.
+                  Each step can be done in any order. The <strong>Save button</strong> appears only after both are connected.
+                </div>
+              </div>
+              <button className="btn-ghost" onClick={() => setOpen(false)}>Close</button>
+            </div>
+
+            <ZohoDualSetupPanel
+              onBothConnected={() => {
+                onAdded()
+                setOpen(false)
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }
 

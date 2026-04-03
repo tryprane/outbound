@@ -50,7 +50,7 @@ export function useMailAccountsDashboard() {
   const [recipientSaving, setRecipientSaving] = useState(false)
   const [bulkRecipients, setBulkRecipients] = useState('')
   const [activeMailboxAccountId, setActiveMailboxAccountId] = useState<string | null>(null)
-  const [activeMailboxFolder, setActiveMailboxFolder] = useState<'INBOX' | 'SPAM'>('INBOX')
+  const [activeMailboxFolder, setActiveMailboxFolder] = useState<'INBOX' | 'SPAM' | 'SENT'>('INBOX')
   const [mailboxMessages, setMailboxMessages] = useState<MailboxMessage[]>([])
   const [mailboxLoading, setMailboxLoading] = useState(false)
 
@@ -122,12 +122,17 @@ export function useMailAccountsDashboard() {
   }, [loadAll, showToast])
 
   const handleToggleMailActive = useCallback(async (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => {
+    const account = accounts.find((item) => item.id === id)
+    if (account?.type === 'zoho' && account.connectionReady === false) {
+      showToast('error', 'Finish both Zoho SMTP and OAuth on the same email before activating this mailbox.')
+      return
+    }
     if (!current && warmupStatus !== 'WARMED') {
       showToast('error', 'Only WARMED mailboxes can be activated.')
       return
     }
     await handlePatchMailAccount({ id, isActive: !current })
-  }, [handlePatchMailAccount, showToast])
+  }, [accounts, handlePatchMailAccount, showToast])
 
   const handleWarmupStatusChange = useCallback(async (id: string, warmupStatus: MailAccount['warmupStatus']) => {
     await handlePatchMailAccount({ id, warmupStatus }, `Warmup status updated to ${warmupStatus}`)
@@ -151,7 +156,7 @@ export function useMailAccountsDashboard() {
     await handlePatchMailAccount({ id, zohoMailboxMode: 'api' }, 'Zoho mailbox switched to API mode')
   }, [handlePatchMailAccount])
 
-  const handleOpenMailboxFolder = useCallback(async (mailAccountId: string, folderKind: 'INBOX' | 'SPAM') => {
+  const handleOpenMailboxFolder = useCallback(async (mailAccountId: string, folderKind: 'INBOX' | 'SPAM' | 'SENT') => {
     setActiveMailboxAccountId(mailAccountId)
     setActiveMailboxFolder(folderKind)
     setMailboxLoading(true)

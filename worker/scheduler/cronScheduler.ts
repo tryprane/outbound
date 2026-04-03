@@ -15,9 +15,12 @@ let campaignIntervalHandle: NodeJS.Timeout | null = null
 let mailboxSyncIntervalHandle: NodeJS.Timeout | null = null
 let warmupIntervalHandle: NodeJS.Timeout | null = null
 let whatsappSessionIntervalHandle: NodeJS.Timeout | null = null
+let inboxCleanupIntervalHandle: NodeJS.Timeout | null = null
 let dailyResetHandle: NodeJS.Timeout | null = null
 
 const WHATSAPP_SESSION_KEEPALIVE = String(process.env.WHATSAPP_SESSION_KEEPALIVE ?? 'false').toLowerCase() === 'true'
+const MAILBOX_RETENTION_DAYS = Math.max(3, Number(process.env.MAILBOX_SYNC_RETENTION_DAYS ?? 30))
+const WHATSAPP_RETENTION_DAYS = Math.max(3, Number(process.env.WHATSAPP_INBOX_RETENTION_DAYS ?? 45))
 
 const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
 
@@ -535,7 +538,13 @@ async function pollMailboxSyncAccounts() {
       where: {
         OR: [
           { type: 'gmail', refreshToken: { not: null } },
-          { type: 'zoho', smtpPassword: { not: null } },
+          {
+            type: 'zoho',
+            OR: [
+              { smtpPassword: { not: null } },
+              { zohoRefreshToken: { not: null } },
+            ],
+          },
         ],
       },
       select: { id: true, type: true, mailboxSyncError: true },
@@ -555,6 +564,56 @@ async function pollMailboxSyncAccounts() {
   }
 }
 
+async function pruneUnifiedInboxData() {
+  try {
+    const mailboxCutoff = new Date(Date.now() - MAILBOX_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+    const whatsappCutoff = new Date(Date.now() - WHATSAPP_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+
+    const [deletedMailboxMessages, deletedWhatsAppMessages] = await prisma.$transaction([
+      prisma.mailboxMessage.deleteMany({
+        where: {
+          createdAt: { lt: mailboxCutoff },
+        },
+      }),
+      prisma.whatsAppConversationMessage.deleteMany({
+        where: {
+          createdAt: { lt: whatsappCutoff },
+        },
+      }),
+    ])
+
+    const [deletedThreads, deletedConversations] = await prisma.$transaction([
+      prisma.mailboxThread.deleteMany({
+        where: {
+          messages: {
+            none: {},
+          },
+        },
+      }),
+      prisma.whatsAppConversation.deleteMany({
+        where: {
+          messages: {
+            none: {},
+          },
+        },
+      }),
+    ])
+
+    if (
+      deletedMailboxMessages.count > 0 ||
+      deletedWhatsAppMessages.count > 0 ||
+      deletedThreads.count > 0 ||
+      deletedConversations.count > 0
+    ) {
+      console.log(
+        `[Cron] Inbox cleanup pruned ${deletedMailboxMessages.count} email messages, ${deletedThreads.count} email threads, ${deletedWhatsAppMessages.count} WhatsApp messages, ${deletedConversations.count} WhatsApp conversations`
+      )
+    }
+  } catch (err) {
+    console.error('[Cron] Inbox cleanup failed:', err)
+  }
+}
+
 async function pollWhatsAppSessions() {
   try {
     await ensureWhatsAppSessions()
@@ -569,6 +628,7 @@ export function startCronScheduler() {
   void pollActiveCampaigns()
   void pollMailboxSyncAccounts()
   void pollWarmupAccounts()
+  void pruneUnifiedInboxData()
   if (WHATSAPP_SESSION_KEEPALIVE) {
     void pollWhatsAppSessions()
   }
@@ -576,6 +636,7 @@ export function startCronScheduler() {
   campaignIntervalHandle = setInterval(pollActiveCampaigns, 60_000)
   mailboxSyncIntervalHandle = setInterval(pollMailboxSyncAccounts, 300_000)
   warmupIntervalHandle = setInterval(pollWarmupAccounts, 60_000)
+  inboxCleanupIntervalHandle = setInterval(pruneUnifiedInboxData, 6 * 60 * 60 * 1000)
   if (WHATSAPP_SESSION_KEEPALIVE) {
     whatsappSessionIntervalHandle = setInterval(pollWhatsAppSessions, 300_000)
   }
@@ -601,6 +662,10 @@ export function stopCronScheduler() {
   if (whatsappSessionIntervalHandle) {
     clearInterval(whatsappSessionIntervalHandle)
     whatsappSessionIntervalHandle = null
+  }
+  if (inboxCleanupIntervalHandle) {
+    clearInterval(inboxCleanupIntervalHandle)
+    inboxCleanupIntervalHandle = null
   }
   if (dailyResetHandle) {
     clearTimeout(dailyResetHandle)

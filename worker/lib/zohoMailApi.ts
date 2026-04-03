@@ -223,7 +223,7 @@ export async function exchangeZohoCode(code: string) {
 
   return {
     accountId: primary.accountId,
-    email: primary.primaryEmailAddress,
+    email: primary.primaryEmailAddress.trim().toLowerCase(),
     displayName: primary.displayName || primary.mailboxAddress || primary.primaryEmailAddress,
     region: tokenRecord.region,
     accessToken: tokenRecord.accessToken,
