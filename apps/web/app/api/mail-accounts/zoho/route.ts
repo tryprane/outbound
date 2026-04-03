@@ -27,15 +27,16 @@ export async function POST(request: NextRequest) {
       testOnly?: boolean
     }
 
-    const { displayName, email, smtpHost, smtpPort, imapHost, imapPort, imapSecure, password, dailyLimit, testOnly } = body
+    const normalizedEmail = body.email?.trim().toLowerCase()
+    const { displayName, smtpHost, smtpPort, imapHost, imapPort, imapSecure, password, dailyLimit, testOnly } = body
 
     // Validate required fields
-    if (!email || !smtpHost || !smtpPort || !password) {
+    if (!normalizedEmail || !smtpHost || !smtpPort || !password) {
       return NextResponse.json({ error: 'Missing required SMTP fields' }, { status: 400 })
     }
 
     // Always test the connection first
-    const test = await testZohoConnection({ host: smtpHost, port: smtpPort, email, password })
+    const test = await testZohoConnection({ host: smtpHost, port: smtpPort, email: normalizedEmail, password })
     if (!test.success) {
       return NextResponse.json(
         { error: `Connection failed: ${test.error}` },
@@ -53,11 +54,11 @@ export async function POST(request: NextRequest) {
 
     // Upsert the account (allow updating existing Zoho accounts)
     const account = await prisma.mailAccount.upsert({
-      where: { email },
+      where: { email: normalizedEmail },
         create: {
           type: 'zoho',
-          email,
-          displayName: displayName || email,
+          email: normalizedEmail,
+          displayName: displayName || normalizedEmail,
           smtpHost,
           smtpPort,
           zohoMailboxMode: 'imap',
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
         isActive: false,
       },
         update: {
-          displayName: displayName || email,
+          displayName: displayName || normalizedEmail,
           smtpHost,
           smtpPort,
           zohoMailboxMode: 'imap',
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    const domain = email.split('@')[1]?.toLowerCase()
+    const domain = normalizedEmail.split('@')[1]?.toLowerCase()
     const diagnostics = domain ? await getDomainDiagnostics(domain, 'zoho') : null
 
     return NextResponse.json({

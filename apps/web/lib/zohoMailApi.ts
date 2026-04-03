@@ -253,7 +253,7 @@ export async function exchangeZohoCodeWithBaseUrl(code: string, baseUrl?: string
     throw new Error('Zoho account details not found after OAuth')
   }
 
-  const email = primary.primaryEmailAddress
+  const email = primary.primaryEmailAddress.trim().toLowerCase()
   const displayName = primary.displayName || primary.mailboxAddress || email
   const tokenExpiry = payload.expires_in ? new Date(Date.now() + payload.expires_in * 1000) : null
 

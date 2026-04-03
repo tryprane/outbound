@@ -3,7 +3,7 @@ import { prisma } from '~/lib/prisma'
 import { getRedisConnection } from '~/lib/redis'
 import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { WhatsAppJobData } from '~/queues/whatsappQueue'
-import { sendWhatsAppText } from '~/lib/whatsappBaileys'
+import { recordManagedWhatsAppOutbound, sendWhatsAppText } from '~/lib/whatsappBaileys'
 import { releaseWhatsAppAccountReservation } from '~/lib/apiDispatchPool'
 
 async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
@@ -15,17 +15,26 @@ async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
   }
 
   try {
-    await sendWhatsAppText(account.id, account.sessionKey, toPhone, message)
+    const sendResult = await sendWhatsAppText(account.id, account.sessionKey, toPhone, message)
+    const sentAt = new Date()
+    await recordManagedWhatsAppOutbound(account.id, toPhone, {
+      providerMessageId: sendResult.providerMessageId,
+      body: message,
+      status: 'sent',
+      sentAt,
+    })
     const operations = [
       prisma.sentWhatsAppMessage.create({
         data: {
           campaignId,
           csvRowId,
           whatsappAccountId,
+          providerMessageId: sendResult.providerMessageId,
           apiDispatchRequestId,
           toPhone,
           message,
           status: 'sent',
+          sentAt,
         },
       }),
       prisma.whatsAppAccount.update({
@@ -57,8 +66,8 @@ async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
               where: { id: apiDispatchRequestId },
               data: {
                 status: 'SENT',
-                processedAt: new Date(),
-                providerMessageId: account.phoneNumber || account.displayName,
+                processedAt: sentAt,
+                providerMessageId: sendResult.providerMessageId || account.phoneNumber || account.displayName,
                 errorMessage: null,
               },
             }),
