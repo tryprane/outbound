@@ -10,6 +10,12 @@ import {
   providerHintFromType,
   type CampaignEligibleMailAccount,
 } from '~/lib/campaignGuardrails'
+import {
+  DEFAULT_WARMUP_SETTINGS,
+  WARMUP_SETTINGS_KEY,
+  parseWarmupSettingsValue,
+  recommendedLimitFromStage,
+} from '~/lib/warmupSettings'
 
 let campaignIntervalHandle: NodeJS.Timeout | null = null
 let mailboxSyncIntervalHandle: NodeJS.Timeout | null = null
@@ -22,11 +28,12 @@ const WHATSAPP_SESSION_KEEPALIVE = String(process.env.WHATSAPP_SESSION_KEEPALIVE
 const MAILBOX_RETENTION_DAYS = Math.max(3, Number(process.env.MAILBOX_SYNC_RETENTION_DAYS ?? 30))
 const WHATSAPP_RETENTION_DAYS = Math.max(3, Number(process.env.WHATSAPP_INBOX_RETENTION_DAYS ?? 45))
 
-const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
+async function loadWarmupSettings() {
+  const record = await prisma.systemSetting.findUnique({
+    where: { key: WARMUP_SETTINGS_KEY },
+  })
 
-function recommendedLimitFromStage(stage: number): number {
-  const idx = Math.max(0, Math.min(stage, WARMUP_LIMIT_PLAN.length - 1))
-  return WARMUP_LIMIT_PLAN[idx]
+  return parseWarmupSettingsValue(record?.value) ?? DEFAULT_WARMUP_SETTINGS
 }
 
 function msUntilMidnight(): number {
@@ -61,6 +68,7 @@ function computeWarmupProgression(input: {
   warmupStage: number
   recommendedDailyLimit: number
   logs: Array<{ status: string }>
+  stageCounts: number[]
 }) {
   const total = input.logs.length
   const sent = input.logs.filter((l) => l.status === 'sent').length
@@ -72,17 +80,17 @@ function computeWarmupProgression(input: {
 
   let nextStage = input.warmupStage
   if (total >= minRequired && successRate >= 0.85 && failRate <= 0.15) {
-    nextStage = Math.min(input.warmupStage + 1, WARMUP_LIMIT_PLAN.length - 1)
+    nextStage = Math.min(input.warmupStage + 1, input.stageCounts.length - 1)
   }
   if (total >= minRequired && failRate >= 0.35) {
     nextStage = Math.max(0, input.warmupStage - 1)
   }
 
-  const warmed = nextStage >= WARMUP_LIMIT_PLAN.length - 1
+  const warmed = nextStage >= input.stageCounts.length - 1
   return {
     nextStage,
     warmed,
-    recommendedDailyLimit: recommendedLimitFromStage(nextStage),
+    recommendedDailyLimit: recommendedLimitFromStage(nextStage, input.stageCounts),
   }
 }
 
@@ -363,6 +371,7 @@ async function captureDomainHealthSnapshots() {
 
 async function runDailyReset() {
   try {
+    const warmupSettings = await loadWarmupSettings()
     const [mailResetResult, waResetResult] = await Promise.all([
       prisma.mailAccount.updateMany({
         data: { sentToday: 0, lastResetAt: new Date() },
@@ -394,6 +403,7 @@ async function runDailyReset() {
         warmupStage: acc.warmupStage,
         recommendedDailyLimit: acc.recommendedDailyLimit,
         logs: warmupLogs,
+        stageCounts: warmupSettings.stageCounts,
       })
 
       await prisma.mailAccount.update({
@@ -511,6 +521,11 @@ async function pollActiveCampaigns() {
 
 async function pollWarmupAccounts() {
   try {
+    const settings = await loadWarmupSettings()
+    if (!settings.globalEnabled) {
+      return
+    }
+
     const warmingAccounts = await prisma.mailAccount.findMany({
       where: {
         warmupStatus: 'WARMING',

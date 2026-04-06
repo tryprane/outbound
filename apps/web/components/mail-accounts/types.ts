@@ -205,4 +205,4 @@ export interface DomainHealthSnapshot {
   createdAt: string
 }
 
-export type ActiveTab = 'accounts' | 'warmup' | 'add-zoho' | 'add-gmail' | 'add-whatsapp'
+export type ActiveTab = 'accounts' | 'add-zoho' | 'add-gmail' | 'add-whatsapp'

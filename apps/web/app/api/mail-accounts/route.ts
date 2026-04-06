@@ -1,20 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDomainDiagnostics, getDomainDiagnosticsBlockers, type DomainProviderHint } from '@/lib/domainDiagnostics'
+import { getDomainDiagnostics, type DomainProviderHint } from '@/lib/domainDiagnostics'
 import { prisma } from '@/lib/prisma'
 import { getMailboxSyncQueue } from '@/lib/mailboxSyncQueue'
 import { getWhatsAppSessionQueue } from '@/lib/whatsappSessionQueue'
 import { getWarmupQueue } from '@/lib/warmupQueue'
 import { extractEmailDomain, providerHintFromType } from '@/lib/campaignGuardrails'
 import { markMailboxMessageAsRead, rescueMailboxMessageToInbox, replyToMailboxMessage } from '@/lib/mailboxActions'
+import {
+  DEFAULT_WARMUP_SETTINGS,
+  WARMUP_SETTINGS_KEY,
+  parseWarmupSettingsValue,
+  recommendedLimitFromStage,
+} from '@/lib/warmupSettings'
 
-const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
 type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
 const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox'
 const ZOHO_API_RECONNECT_MESSAGE = 'Reconnect Zoho account to restore mailbox API access'
 
-function recommendedLimitFromStage(stage: number): number {
-  const idx = Math.max(0, Math.min(stage, WARMUP_LIMIT_PLAN.length - 1))
-  return WARMUP_LIMIT_PLAN[idx]
+async function loadWarmupSettings() {
+  const record = await prisma.systemSetting.findUnique({
+    where: { key: WARMUP_SETTINGS_KEY },
+  })
+
+  return parseWarmupSettingsValue(record?.value) ?? DEFAULT_WARMUP_SETTINGS
 }
 
 type DomainHealthSummary = {
@@ -821,6 +829,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    const warmupSettings = await loadWarmupSettings()
     const body = await request.json() as {
       id: string
       isActive?: boolean
@@ -846,20 +855,6 @@ export async function PATCH(request: NextRequest) {
         { error: 'Only WARMED mailboxes can be activated for campaign sending.' },
         { status: 400 }
       )
-    }
-    if (isActive === true) {
-      const domain = extractEmailDomain(account.email)
-      if (domain) {
-        const providerHint = providerHintFromType(account.type)
-        const diagnostics = await getDomainDiagnostics(domain, providerHint)
-        const blockers = getDomainDiagnosticsBlockers(diagnostics)
-        if (blockers.length > 0) {
-          return NextResponse.json(
-            { error: `Mailbox activation blocked by domain safety checks: ${blockers.join(', ')}` },
-            { status: 400 }
-          )
-        }
-      }
     }
 
     const data: Record<string, unknown> = {
@@ -887,7 +882,7 @@ export async function PATCH(request: NextRequest) {
         data.warmupStartedAt = null
         data.warmupCompletedAt = null
         data.warmupPausedAt = null
-        data.recommendedDailyLimit = recommendedLimitFromStage(0)
+        data.recommendedDailyLimit = recommendedLimitFromStage(0, warmupSettings.stageCounts)
         data.isActive = false
       }
       if (warmupStatus === 'WARMING') {
@@ -895,15 +890,21 @@ export async function PATCH(request: NextRequest) {
         data.warmupStage = stage
         data.warmupStartedAt = account.warmupStartedAt ?? new Date()
         data.warmupPausedAt = null
-        data.recommendedDailyLimit = recommendedLimitFromStage(stage)
+        data.recommendedDailyLimit = recommendedLimitFromStage(stage, warmupSettings.stageCounts)
         data.isActive = false
       }
       if (warmupStatus === 'WARMED') {
-        const stage = Math.max(warmupStage ?? account.warmupStage ?? 0, WARMUP_LIMIT_PLAN.length - 1)
+        const stage = Math.max(
+          warmupStage ?? account.warmupStage ?? 0,
+          warmupSettings.stageCounts.length - 1
+        )
         data.warmupStage = stage
         data.warmupCompletedAt = account.warmupCompletedAt ?? new Date()
         data.warmupPausedAt = null
-        data.recommendedDailyLimit = Math.max(dailyLimit ?? account.dailyLimit, recommendedLimitFromStage(stage))
+        data.recommendedDailyLimit = Math.max(
+          dailyLimit ?? account.dailyLimit,
+          recommendedLimitFromStage(stage, warmupSettings.stageCounts)
+        )
       }
       if (warmupStatus === 'PAUSED') {
         data.warmupPausedAt = new Date()
@@ -912,7 +913,7 @@ export async function PATCH(request: NextRequest) {
     } else if (warmupStage !== undefined) {
       const stage = Math.max(0, warmupStage)
       data.warmupStage = stage
-      data.recommendedDailyLimit = recommendedLimitFromStage(stage)
+      data.recommendedDailyLimit = recommendedLimitFromStage(stage, warmupSettings.stageCounts)
     }
 
     const updated = await prisma.mailAccount.update({
@@ -921,6 +922,12 @@ export async function PATCH(request: NextRequest) {
     })
 
     if (runWarmupNow) {
+      if (!warmupSettings.globalEnabled) {
+        return NextResponse.json(
+          { error: 'Global warmup is disabled. Turn it back on in the warmup workspace first.' },
+          { status: 400 }
+        )
+      }
       if (updated.warmupStatus !== 'WARMING') {
         return NextResponse.json(
           { error: 'Warmup can only be triggered while the mailbox is in WARMING status.' },

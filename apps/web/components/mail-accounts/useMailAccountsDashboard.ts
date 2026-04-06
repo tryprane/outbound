@@ -8,7 +8,6 @@ import {
   deleteMailAccount,
   deleteWarmupRecipient,
   deleteWhatsappAccount,
-  fetchDomainDiagnostics,
   fetchMailboxMessages,
   fetchMailAccountsDashboardData,
   importWarmupRecipients,
@@ -19,9 +18,6 @@ import {
 } from '@/lib/mailAccountsClient'
 import type {
   ActiveTab,
-  DomainDiagnostics,
-  DomainHealthSnapshot,
-  DomainHealthSummary,
   MailAccount,
   MailboxMessage,
   WarmupLog,
@@ -37,9 +33,6 @@ export function useMailAccountsDashboard() {
   const [warmupRecipients, setWarmupRecipients] = useState<WarmupRecipient[]>([])
   const [warmupOverview, setWarmupOverview] = useState<WarmupOverview | null>(null)
   const [warmupLogs, setWarmupLogs] = useState<WarmupLog[]>([])
-  const [domainDiagnostics, setDomainDiagnostics] = useState<DomainDiagnostics[]>([])
-  const [domainHealth, setDomainHealth] = useState<DomainHealthSummary[]>([])
-  const [domainHealthHistory, setDomainHealthHistory] = useState<DomainHealthSnapshot[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ActiveTab>('accounts')
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
@@ -74,8 +67,6 @@ export function useMailAccountsDashboard() {
     setWarmupRecipients(Array.isArray(result.warmupRecipients) ? result.warmupRecipients : [])
     setWarmupOverview(result.warmupOverview)
     setWarmupLogs(Array.isArray(result.warmupLogs) ? result.warmupLogs : [])
-    setDomainHealth(Array.isArray(result.domainHealth.domains) ? result.domainHealth.domains : [])
-    setDomainHealthHistory(Array.isArray(result.domainHealth.history) ? result.domainHealth.history : [])
     if (!background) setLoading(false)
   }, [])
 
@@ -94,20 +85,6 @@ export function useMailAccountsDashboard() {
       return next
     })
   }, [accounts])
-
-  useEffect(() => {
-    let cancelled = false
-    const loadDiagnostics = async () => {
-      const result = await fetchDomainDiagnostics()
-      if (!cancelled) setDomainDiagnostics(Array.isArray(result) ? result : [])
-    }
-    void loadDiagnostics()
-    const timer = setInterval(() => void loadDiagnostics(), 15 * 60_000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [])
 
   const handlePatchMailAccount = useCallback(async (body: Record<string, unknown>, successMessage?: string) => {
     const res = await patchMailAccount(body)
@@ -350,9 +327,6 @@ export function useMailAccountsDashboard() {
     const activeMailboxPool = accounts.filter((a) => a.isActive).length
     const recipientPoolHealthy = activeCustomRecipients > 0 || activeMailboxPool > 1
     const pausedGmailAccounts = accounts.filter((a) => a.type === 'gmail' && a.warmupStatus === 'PAUSED')
-    const domainsWithWarnings = domainDiagnostics.filter((item) => item.warnings.length > 0)
-    const criticalDomains = domainDiagnostics.filter((item) => item.severity === 'critical')
-    const domainsAtRisk = domainHealth.filter((item) => item.healthStatus === 'at_risk' || item.healthStatus === 'paused')
     return {
       warmedAccounts,
       warmingAccounts,
@@ -364,11 +338,8 @@ export function useMailAccountsDashboard() {
       activeMailboxPool,
       recipientPoolHealthy,
       pausedGmailAccounts,
-      domainsWithWarnings,
-      criticalDomains,
-      domainsAtRisk,
     }
-  }, [accounts, domainDiagnostics, domainHealth, warmupRecipients, whatsappAccounts])
+  }, [accounts, warmupRecipients, whatsappAccounts])
 
   return {
     accounts,
@@ -376,9 +347,6 @@ export function useMailAccountsDashboard() {
     warmupRecipients,
     warmupOverview,
     warmupLogs,
-    domainDiagnostics,
-    domainHealth,
-    domainHealthHistory,
     loading,
     activeTab,
     setActiveTab,

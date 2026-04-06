@@ -1,12 +1,10 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { GeistSans } from 'geist/font/sans'
 import './globals.css'
 import { Providers } from './providers'
 
-const inter = Inter({ subsets: ['latin'] })
-
 export const metadata: Metadata = {
-  title: 'OutreachOS — Outbound Automation',
+  title: 'OutreachOS - Outbound Automation',
   description: 'Internal outbound automation platform for digital marketing agencies',
 }
 
@@ -16,8 +14,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className={inter.className}>
+    <html lang="en">
+      <body className={GeistSans.className}>
         <Providers>{children}</Providers>
       </body>
     </html>

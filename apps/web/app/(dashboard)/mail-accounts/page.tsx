@@ -6,9 +6,7 @@ import {
   AddGmailView,
   AddWhatsappView,
   AddZohoView,
-  DomainPanels,
   MailAccountsHero,
-  WarmupView,
 } from '@/components/mail-accounts/MailAccountsSections'
 import { useMailAccountsDashboard } from '@/components/mail-accounts/useMailAccountsDashboard'
 
@@ -44,15 +42,6 @@ function MailAccountsPageContent() {
         warmedCount={dashboard.warmedAccounts.length}
         whatsappCount={dashboard.whatsappAccounts.length}
         connectedWhatsappCount={dashboard.connectedWhatsapp.length}
-        activeRecipients={dashboard.warmupRecipients.filter((r) => r.isActive).length}
-        criticalDomains={dashboard.criticalDomains.length}
-        riskyDomains={dashboard.domainsAtRisk.length}
-      />
-
-      <DomainPanels
-        domainHealth={dashboard.domainHealth}
-        domainHealthHistory={dashboard.domainHealthHistory}
-        domainDiagnostics={dashboard.domainDiagnostics}
       />
 
       {dashboard.activeTab === 'accounts' ? (
@@ -83,27 +72,6 @@ function MailAccountsPageContent() {
           handleUpdateWhatsappLimit={dashboard.handleUpdateWhatsappLimit}
           handleReconnectWhatsapp={dashboard.handleReconnectWhatsapp}
           handleDeleteWhatsapp={dashboard.handleDeleteWhatsapp}
-        />
-      ) : null}
-
-      {dashboard.activeTab === 'warmup' ? (
-        <WarmupView
-          warmupOverview={dashboard.warmupOverview}
-          loading={dashboard.loading}
-          warmupRecipients={dashboard.warmupRecipients}
-          recipientForm={dashboard.recipientForm}
-          setRecipientForm={dashboard.setRecipientForm}
-          recipientSaving={dashboard.recipientSaving}
-          bulkRecipients={dashboard.bulkRecipients}
-          setBulkRecipients={dashboard.setBulkRecipients}
-          handleCreateWarmupRecipient={dashboard.handleCreateWarmupRecipient}
-          handleBulkWarmupRecipients={dashboard.handleBulkWarmupRecipients}
-          handleToggleWarmupRecipient={dashboard.handleToggleWarmupRecipient}
-          handleDeleteWarmupRecipient={dashboard.handleDeleteWarmupRecipient}
-          warmupLogs={dashboard.warmupLogs}
-          recipientPoolHealthy={dashboard.recipientPoolHealthy}
-          activeMailboxPool={dashboard.activeMailboxPool}
-          activeCustomRecipients={dashboard.activeCustomRecipients}
         />
       ) : null}
 
