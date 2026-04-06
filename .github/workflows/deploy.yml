@@ -86,9 +86,12 @@ jobs:
             export WEB_IMAGE='${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-web:${{ github.sha }}'
             export WORKER_IMAGE='${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-worker:${{ github.sha }}'
             export SCRAPER_IMAGE='${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ env.APP_NAME }}-scraper:${{ github.sha }}'
+            export DEPLOY_REF='${{ github.ref_name }}'
             export POSTGRES_PASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
             export PUBLIC_URL='${{ vars.PUBLIC_URL }}'
             export NEXTAUTH_SECRET='${{ secrets.NEXTAUTH_SECRET }}'
+            export ADMIN_EMAIL='${{ secrets.ADMIN_EMAIL }}'
+            export ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}'
             export ENCRYPTION_KEY='${{ secrets.ENCRYPTION_KEY }}'
             export GOOGLE_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'
             export GOOGLE_CLIENT_SECRET='${{ secrets.GOOGLE_CLIENT_SECRET }}'
@@ -113,6 +116,6 @@ jobs:
               exit 1
             fi
             cd /opt/outbound
-            git fetch origin main
-            git reset --hard origin/main
+            git fetch origin "${DEPLOY_REF}"
+            git reset --hard "origin/${DEPLOY_REF}"
             bash deploy/scripts/remote-deploy.sh

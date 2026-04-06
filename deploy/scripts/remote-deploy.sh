@@ -36,6 +36,8 @@ require_var SCRAPER_IMAGE
 require_var POSTGRES_PASSWORD
 require_var PUBLIC_URL
 require_var NEXTAUTH_SECRET
+require_var ADMIN_EMAIL
+require_var ADMIN_PASSWORD
 require_var ENCRYPTION_KEY
 require_var GOOGLE_CLIENT_ID
 require_var GOOGLE_CLIENT_SECRET
@@ -74,6 +76,8 @@ kubectl -n "$NAMESPACE" create secret generic outbound-env \
   --from-literal=NEXTAUTH_URL="$PUBLIC_URL" \
   --from-literal=APP_URL="$PUBLIC_URL" \
   --from-literal=NEXTAUTH_SECRET="$NEXTAUTH_SECRET" \
+  --from-literal=ADMIN_EMAIL="$ADMIN_EMAIL" \
+  --from-literal=ADMIN_PASSWORD="$ADMIN_PASSWORD" \
   --from-literal=ENCRYPTION_KEY="$ENCRYPTION_KEY" \
   --from-literal=GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
   --from-literal=GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
