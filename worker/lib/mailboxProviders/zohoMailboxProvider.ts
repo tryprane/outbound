@@ -54,8 +54,12 @@ export class ZohoMailboxProvider implements MailboxProvider {
 
   constructor(private readonly account: MailAccount) {}
 
+  private shouldUseApi() {
+    return this.account.zohoMailboxMode === 'api' || Boolean(this.account.zohoRefreshToken && this.account.zohoAccountId)
+  }
+
   async listFolders(): Promise<MailboxFolder[]> {
-    if (this.account.zohoMailboxMode === 'api') {
+    if (this.shouldUseApi()) {
       const folders = await getZohoFolders(this.account)
       return folders.map((folder) => ({
         id: folder.folderId,
@@ -78,7 +82,7 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async listRecentMessages(options: { days?: number; limitPerFolder?: number } = {}): Promise<MailboxMessageRecord[]> {
-    if (this.account.zohoMailboxMode === 'api') {
+    if (this.shouldUseApi()) {
       const folders = await getZohoFolders(this.account)
       const interesting = folders.filter((folder) => {
         const kind = mapZohoFolderKind(folder)
@@ -159,7 +163,7 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async markAsRead(message: MailboxStoredMessageRef): Promise<void> {
-    if (this.account.zohoMailboxMode === 'api') {
+    if (this.shouldUseApi()) {
       await markZohoMessagesAsRead(this.account, [message.providerMessageId])
       return
     }
@@ -175,7 +179,7 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async rescueToInbox(message: MailboxStoredMessageRef): Promise<void> {
-    if (this.account.zohoMailboxMode === 'api') {
+    if (this.shouldUseApi()) {
       const folderId = typeof message.metadata?.folderId === 'string' ? message.metadata.folderId : null
       const folders = await getZohoFolders(this.account)
       const inbox = folders.find((folder) => mapZohoFolderKind(folder) === 'INBOX')
@@ -201,7 +205,7 @@ export class ZohoMailboxProvider implements MailboxProvider {
   }
 
   async sendReply(message: MailboxStoredMessageRef, reply: { subject: string; html: string }): Promise<void> {
-    if (this.account.zohoMailboxMode === 'api') {
+    if (this.shouldUseApi()) {
       const to = message.fromEmail || message.toEmail
       if (!to) throw new Error(`Reply target missing for Zoho mailbox ${this.account.email}`)
       await sendZohoReply(this.account, message.providerMessageId, {
@@ -245,7 +249,7 @@ export class ZohoMailboxProvider implements MailboxProvider {
     if (this.account.type !== 'zoho') {
       throw new Error(`Mailbox provider mismatch for ${this.account.email}`)
     }
-    if (this.account.zohoMailboxMode === 'api') {
+    if (this.shouldUseApi()) {
       throw new Error(`Zoho IMAP connection requested for API mailbox ${this.account.email}`)
     }
     if (!this.account.smtpPassword) {

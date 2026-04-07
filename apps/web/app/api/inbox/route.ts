@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getMailboxSyncQueue } from '@/lib/mailboxSyncQueue'
 import { clearUnifiedInboxData, getUnifiedInboxRetention } from '@/lib/inboxCleanup'
 import { markMailboxMessageAsRead, rescueMailboxMessageToInbox, replyToMailboxMessage } from '@/lib/mailboxActions'
+import { buildPaginatedResult, parsePaginationParams } from '@/lib/pagination'
 import { getWhatsAppQueue } from '@/lib/whatsappQueue'
 
 export const dynamic = 'force-dynamic'
@@ -31,8 +33,11 @@ export async function GET(request: NextRequest) {
       const whatsappAccountId = searchParams.get('whatsappAccountId') || undefined
       const conversationId = searchParams.get('conversationId') || undefined
       const search = normalizeSearch(searchParams.get('search')).toLowerCase()
-
-      const conversations = await prisma.whatsAppConversation.findMany({
+      const conversationPagination = parsePaginationParams(request, { defaultLimit: 20, maxLimit: 100 })
+      const messagePage = Math.max(1, Number.parseInt(searchParams.get('messagePage') || '1', 10) || 1)
+      const requestedMessageLimit = Number.parseInt(searchParams.get('messageLimit') || '30', 10)
+      const messageLimit = Math.min(100, Math.max(1, Number.isFinite(requestedMessageLimit) ? requestedMessageLimit : 30))
+      const conversationWhere: { where: Prisma.WhatsAppConversationWhereInput } = {
         where: {
           ...(whatsappAccountId ? { whatsappAccountId } : {}),
           ...(search
@@ -45,41 +50,49 @@ export async function GET(request: NextRequest) {
               }
             : {}),
         },
-        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-        take: 200,
-        select: {
-          id: true,
-          participantJid: true,
-          participantPhone: true,
-          participantName: true,
-          lastMessageAt: true,
-          whatsappAccountId: true,
-          whatsappAccount: {
-            select: {
-              id: true,
-              displayName: true,
-              phoneNumber: true,
-              connectionStatus: true,
-              isActive: true,
-            },
-          },
-          messages: {
-            orderBy: [{ sentAt: 'desc' }, { receivedAt: 'desc' }, { createdAt: 'desc' }],
-            take: 1,
-            select: {
-              id: true,
-              direction: true,
-              body: true,
-              status: true,
-              sentAt: true,
-              receivedAt: true,
-              createdAt: true,
-            },
-          },
-        },
-      })
+      }
 
-      const selectedConversationId = conversationId || conversations[0]?.id
+      const [conversationItems, conversationsTotal] = await Promise.all([
+        prisma.whatsAppConversation.findMany({
+          ...conversationWhere,
+          orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+          skip: conversationPagination.skip,
+          take: conversationPagination.limit,
+          select: {
+            id: true,
+            participantJid: true,
+            participantPhone: true,
+            participantName: true,
+            lastMessageAt: true,
+            whatsappAccountId: true,
+            whatsappAccount: {
+              select: {
+                id: true,
+                displayName: true,
+                phoneNumber: true,
+                connectionStatus: true,
+                isActive: true,
+              },
+            },
+            messages: {
+              orderBy: [{ sentAt: 'desc' }, { receivedAt: 'desc' }, { createdAt: 'desc' }],
+              take: 1,
+              select: {
+                id: true,
+                direction: true,
+                body: true,
+                status: true,
+                sentAt: true,
+                receivedAt: true,
+                createdAt: true,
+              },
+            },
+          },
+        }),
+        prisma.whatsAppConversation.count(conversationWhere),
+      ])
+
+      const selectedConversationId = conversationId || conversationItems[0]?.id
       const selectedConversation = selectedConversationId
         ? await prisma.whatsAppConversation.findUnique({
             where: { id: selectedConversationId },
@@ -99,93 +112,119 @@ export async function GET(request: NextRequest) {
                   isActive: true,
                 },
               },
-              messages: {
-                orderBy: [{ sentAt: 'asc' }, { receivedAt: 'asc' }, { createdAt: 'asc' }],
-                take: 300,
-                select: {
-                  id: true,
-                  direction: true,
-                  body: true,
-                  status: true,
-                  sentAt: true,
-                  receivedAt: true,
-                  createdAt: true,
-                },
-              },
             },
           })
         : null
 
+      const selectedConversationMessages = selectedConversationId
+        ? await prisma.whatsAppConversationMessage.findMany({
+            where: { conversationId: selectedConversationId },
+            orderBy: [{ sentAt: 'desc' }, { receivedAt: 'desc' }, { createdAt: 'desc' }],
+            skip: (messagePage - 1) * messageLimit,
+            take: messageLimit,
+            select: {
+              id: true,
+              direction: true,
+              body: true,
+              status: true,
+              sentAt: true,
+              receivedAt: true,
+              createdAt: true,
+            },
+          })
+        : []
+      const selectedConversationTotal = selectedConversationId
+        ? await prisma.whatsAppConversationMessage.count({
+            where: { conversationId: selectedConversationId },
+          })
+        : 0
+
+      const conversationSummaries = conversationItems.map((conversation) => ({
+        ...conversation,
+        lastMessage: conversation.messages[0] || null,
+      }))
+
       return NextResponse.json({
         channel,
         retention,
-        conversations: conversations.map((conversation) => ({
-          ...conversation,
-          lastMessage: conversation.messages[0] || null,
-        })),
+        ...buildPaginatedResult(conversationSummaries, conversationsTotal, conversationPagination),
+        conversations: conversationSummaries,
         selectedConversation,
+        selectedConversationMessages: [...selectedConversationMessages].reverse(),
+        selectedConversationTotal,
+        messagePage,
+        messagePages: Math.max(1, Math.ceil(selectedConversationTotal / messageLimit)),
+        messageLimit,
       })
     }
 
+    const pagination = parsePaginationParams(request, { defaultLimit: 25, maxLimit: 100 })
     const folderKind = normalizeFolderKind(searchParams.get('folderKind'))
     const mailAccountId = searchParams.get('mailAccountId') || undefined
     const includeWarmup = searchParams.get('includeWarmup') === 'true'
     const search = normalizeSearch(searchParams.get('search'))
 
-    const messages = await prisma.mailboxMessage.findMany({
-      where: {
-        folderKind,
-        ...(mailAccountId ? { mailAccountId } : {}),
-        ...(includeWarmup ? {} : { isWarmup: false }),
-        ...(search
-          ? {
-              OR: [
-                { subject: { contains: search, mode: 'insensitive' } },
-                { snippet: { contains: search, mode: 'insensitive' } },
-                { fromEmail: { contains: search, mode: 'insensitive' } },
-                { toEmail: { contains: search, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      },
-      orderBy: [{ receivedAt: 'desc' }, { sentAt: 'desc' }, { createdAt: 'desc' }],
-      take: 250,
-      select: {
-        id: true,
-        mailAccountId: true,
-        providerMessageId: true,
-        providerThreadId: true,
-        folderKind: true,
-        folderName: true,
-        direction: true,
-        fromEmail: true,
-        toEmail: true,
-        subject: true,
-        snippet: true,
-        sentAt: true,
-        receivedAt: true,
-        isWarmup: true,
-        isRead: true,
-        isStarred: true,
-        isSpam: true,
-        openedAt: true,
-        repliedAt: true,
-        rescuedAt: true,
-        createdAt: true,
-        mailAccount: {
-          select: {
-            id: true,
-            email: true,
-            displayName: true,
-            type: true,
+    const where: Prisma.MailboxMessageWhereInput = {
+      folderKind,
+      ...(mailAccountId ? { mailAccountId } : {}),
+      ...(includeWarmup ? {} : { isWarmup: false }),
+      ...(search
+        ? {
+            OR: [
+              { subject: { contains: search, mode: 'insensitive' } },
+              { snippet: { contains: search, mode: 'insensitive' } },
+              { fromEmail: { contains: search, mode: 'insensitive' } },
+              { toEmail: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    }
+
+    const [messages, total] = await Promise.all([
+      prisma.mailboxMessage.findMany({
+        where,
+        orderBy: [{ receivedAt: 'desc' }, { sentAt: 'desc' }, { createdAt: 'desc' }],
+        skip: pagination.skip,
+        take: pagination.limit,
+        select: {
+          id: true,
+          mailAccountId: true,
+          providerMessageId: true,
+          providerThreadId: true,
+          folderKind: true,
+          folderName: true,
+          direction: true,
+          fromEmail: true,
+          toEmail: true,
+          subject: true,
+          snippet: true,
+          sentAt: true,
+          receivedAt: true,
+          isWarmup: true,
+          isRead: true,
+          isStarred: true,
+          isSpam: true,
+          openedAt: true,
+          repliedAt: true,
+          rescuedAt: true,
+          createdAt: true,
+          mailAccount: {
+            select: {
+              id: true,
+              email: true,
+              displayName: true,
+              type: true,
+            },
           },
         },
-      },
-    })
+      }),
+      prisma.mailboxMessage.count({ where }),
+    ])
 
     return NextResponse.json({
       channel,
       retention,
+      ...buildPaginatedResult(messages, total, pagination),
       messages,
     })
   } catch (error) {

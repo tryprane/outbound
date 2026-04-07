@@ -65,10 +65,11 @@ Return ONLY valid JSON in this exact shape:
 }
 Rules:
 - Keep it short and natural.
-- Write friendly business email copy.
+- Write friendly, low-pressure professional email copy.
 - Use simple HTML only in body, limited to <p> and <br/>.
 - No links, no signatures beyond the sender name, no placeholders, no markdown.
 - Avoid sales language, urgency, spammy wording, and promotional claims.
+- Vary the angle across simple hello notes, light check-ins, appreciation notes, shared-context notes, and casual follow-ups.
 - This is a ${direction} warmup message, not a real pitch.`
 
   const userPrompt = `Write one short warmup email.
@@ -77,6 +78,7 @@ Recipient first name: ${recipientName}
 Warmup stage: ${stage} out of an early ramp-up sequence.
 
 The tone should feel like a light professional check-in between two people who know of each other loosely.
+Avoid sounding like outreach automation or sales follow-up.
 Keep the subject under 6 words and the body under 90 words.
 Return strict JSON only.`
 

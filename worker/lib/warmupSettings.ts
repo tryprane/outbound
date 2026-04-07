@@ -1,6 +1,6 @@
 export const WARMUP_SETTINGS_KEY = 'warmup:settings'
 
-export const DEFAULT_WARMUP_STAGE_COUNTS = [5, 8, 12, 18, 25, 35, 50, 65, 80, 100]
+export const DEFAULT_WARMUP_STAGE_COUNTS = [5, 8, 12, 18, 25, 40, 60]
 
 export interface WarmupSettings {
   globalEnabled: boolean

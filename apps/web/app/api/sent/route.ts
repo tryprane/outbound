@@ -107,14 +107,15 @@ export async function GET(request: NextRequest) {
         prisma.sentWhatsAppMessage.count({ where: { ...where, status: 'failed' } }),
       ])
 
-      return NextResponse.json({
-        channel,
-        logs,
-        total,
-        page,
-        pages: Math.max(1, Math.ceil(total / limit)),
-        counts: { sent: sentCount, failed: failedCount, bounced: 0 },
-      })
+    return NextResponse.json({
+      channel,
+      logs,
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      limit,
+      counts: { sent: sentCount, failed: failedCount, bounced: 0 },
+    })
     }
 
     const where = {
@@ -289,6 +290,7 @@ export async function GET(request: NextRequest) {
       total,
       page,
       pages: Math.max(1, Math.ceil(total / limit)),
+      limit,
       counts: {
         sent: sentCount,
         failed: failedCount,

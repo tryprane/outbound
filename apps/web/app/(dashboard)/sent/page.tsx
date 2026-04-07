@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { PaginationControls } from '@/components/ui/pagination-controls'
 
 interface MailLog {
   id: string
@@ -38,6 +39,7 @@ export default function GlobalSentMailPage() {
   const [counts, setCounts] = useState({ sent: 0, failed: 0, bounced: 0, complaints: 0, opened: 0, unopened: 0, openRate: 0 })
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
+  const [limit, setLimit] = useState(50)
   
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({
@@ -55,16 +57,16 @@ export default function GlobalSentMailPage() {
   useEffect(() => {
     // Fetch dropdown options once
     Promise.all([
-      fetch('/api/campaigns').then(r => r.json()),
-      fetch('/api/mail-accounts').then(r => r.json()),
+      fetch('/api/campaigns?page=1&limit=100').then(r => r.json()),
+      fetch('/api/mail-accounts?page=1&limit=100').then(r => r.json()),
     ]).then(([camps, accs]) => {
       setOptions({
-        campaigns: Array.isArray(camps)
-          ? camps
+        campaigns: Array.isArray(camps?.items)
+          ? camps.items
               .filter((c: any) => c.channel === 'EMAIL')
               .map((c: any) => ({ id: c.id, name: c.name, channel: c.channel }))
           : [],
-        accounts: Array.isArray(accs) ? accs : [],
+        accounts: Array.isArray(accs?.items) ? accs.items : [],
       })
     })
   }, [])
@@ -79,6 +81,7 @@ export default function GlobalSentMailPage() {
     if (filters.to) params.append('to', filters.to)
     params.append('channel', 'email')
     params.append('page', filters.page.toString())
+    params.append('limit', limit.toString())
 
     fetch(`/api/sent?${params.toString()}`)
       .then(r => r.json())
@@ -87,6 +90,7 @@ export default function GlobalSentMailPage() {
         setCounts(data.counts || { sent: 0, failed: 0, bounced: 0, complaints: 0, opened: 0, unopened: 0, openRate: 0 })
         setTotal(data.total || 0)
         setPages(data.pages || 1)
+        setLimit(data.limit || limit)
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -94,7 +98,7 @@ export default function GlobalSentMailPage() {
 
   useEffect(() => {
     fetchLogs()
-  }, [filters]) // eslint-disable-line
+  }, [filters, limit]) // eslint-disable-line
 
   const handleLogAction = async (sentMailId: string, action: 'mark-bounced' | 'mark-complaint' | 'clear-complaint-log') => {
     const res = await fetch('/api/sent', {
@@ -367,29 +371,20 @@ export default function GlobalSentMailPage() {
         </div>
 
         {/* Pagination */}
-        {pages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-              Showing page {filters.page} of {pages}
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button 
-                className="btn-ghost" 
-                style={{ padding: '6px 12px', fontSize: '13px' }}
-                disabled={filters.page === 1}
-                onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}
-              >
-                Previous
-              </button>
-              <button 
-                className="btn-ghost" 
-                style={{ padding: '6px 12px', fontSize: '13px' }}
-                disabled={filters.page >= pages}
-                onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}
-              >
-                Next
-              </button>
-            </div>
+        {pages > 0 && (
+          <div style={{ padding: '16px', borderTop: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+            <PaginationControls
+              page={filters.page}
+              pages={pages}
+              total={total}
+              limit={limit}
+              onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+              onLimitChange={(value) => {
+                setLimit(value)
+                setFilters((current) => ({ ...current, page: 1 }))
+              }}
+              label="sent logs"
+            />
           </div>
         )}
       </div>

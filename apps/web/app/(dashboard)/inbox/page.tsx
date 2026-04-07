@@ -1,6 +1,7 @@
 'use client'
 
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { PaginationControls } from '@/components/ui/pagination-controls'
 
 type MailAccountOption = {
   id: string
@@ -74,15 +75,16 @@ type WhatsAppConversationDetail = {
     connectionStatus: string
     isActive: boolean
   }
-  messages: Array<{
-    id: string
-    direction: 'inbound' | 'outbound'
-    body: string
-    status: string | null
-    sentAt: string | null
-    receivedAt: string | null
-    createdAt: string
-  }>
+}
+
+type WhatsAppConversationMessage = {
+  id: string
+  direction: 'inbound' | 'outbound'
+  body: string
+  status: string | null
+  sentAt: string | null
+  receivedAt: string | null
+  createdAt: string
 }
 
 type InboxRetention = {
@@ -90,26 +92,30 @@ type InboxRetention = {
   whatsappDays: number
 }
 
+type PaginatedPayload<T> = {
+  items: T[]
+  total: number
+  page: number
+  pages: number
+  limit: number
+}
+
+function emptyPage<T>(limit: number): PaginatedPayload<T> {
+  return { items: [], total: 0, page: 1, pages: 1, limit }
+}
+
 function formatDate(value?: string | null) {
   if (!value) return 'No timestamp'
   return new Date(value).toLocaleString()
 }
 
-function Surface(props: React.PropsWithChildren<{ style?: React.CSSProperties }>) {
-  return (
-    <div
-      style={{
-        padding: '18px',
-        borderRadius: '20px',
-        border: '1px solid rgba(255,255,255,0.08)',
-        background: 'linear-gradient(180deg, rgba(22,22,31,0.96), rgba(14,14,22,0.96))',
-        boxShadow: '0 18px 45px rgba(0,0,0,0.25)',
-        ...props.style,
-      }}
-    >
-      {props.children}
-    </div>
-  )
+async function readJson<T>(url: string, fallback: T): Promise<T> {
+  try {
+    const response = await fetch(url)
+    return (await response.json()) as T
+  } catch {
+    return fallback
+  }
 }
 
 export default function InboxPage() {
@@ -122,111 +128,154 @@ export default function InboxPage() {
   const [includeWarmup, setIncludeWarmup] = useState(false)
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
-  const [emailMessages, setEmailMessages] = useState<EmailInboxMessage[]>([])
+  const [emailData, setEmailData] = useState<PaginatedPayload<EmailInboxMessage>>(emptyPage(25))
   const [emailLoading, setEmailLoading] = useState(true)
+  const [emailPage, setEmailPage] = useState(1)
+  const [emailLimit, setEmailLimit] = useState(25)
   const [replyingMessageId, setReplyingMessageId] = useState<string | null>(null)
   const [emailReplySubject, setEmailReplySubject] = useState('Re: Quick follow-up')
   const [emailReplyBody, setEmailReplyBody] = useState('<p>Thanks for your message. Sharing a quick follow-up from the unified inbox.</p>')
   const [waSearch, setWaSearch] = useState('')
   const deferredWaSearch = useDeferredValue(waSearch)
   const [selectedWhatsappAccountId, setSelectedWhatsappAccountId] = useState('')
+  const [waConversationData, setWaConversationData] = useState<PaginatedPayload<WhatsAppConversationSummary>>(emptyPage(20))
+  const [waConversationPage, setWaConversationPage] = useState(1)
+  const [waConversationLimit, setWaConversationLimit] = useState(20)
   const [whatsappLoading, setWhatsappLoading] = useState(true)
-  const [waConversations, setWaConversations] = useState<WhatsAppConversationSummary[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [selectedConversation, setSelectedConversation] = useState<WhatsAppConversationDetail | null>(null)
+  const [waMessageData, setWaMessageData] = useState<PaginatedPayload<WhatsAppConversationMessage>>(emptyPage(30))
+  const [waMessagePage, setWaMessagePage] = useState(1)
+  const [waMessageLimit, setWaMessageLimit] = useState(30)
   const [waComposer, setWaComposer] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
+    if (!toast) return
     const timer = setTimeout(() => setToast(null), 4000)
     return () => clearTimeout(timer)
   }, [toast])
 
   useEffect(() => {
-    const loadAccounts = async () => {
+    const loadAccountsAndSettings = async () => {
       const [mailRes, waRes] = await Promise.all([
-        fetch('/api/mail-accounts').then((res) => res.json()).catch(() => []),
-        fetch('/api/mail-accounts?resource=whatsapp-accounts').then((res) => res.json()).catch(() => []),
+        readJson<PaginatedPayload<MailAccountOption>>('/api/mail-accounts?page=1&limit=100', emptyPage(100)),
+        readJson<PaginatedPayload<WhatsAppAccountOption>>('/api/mail-accounts?resource=whatsapp-accounts&page=1&limit=100', emptyPage(100)),
       ])
-      setMailAccounts(
-        Array.isArray(mailRes)
-          ? mailRes.map((account) => ({
-              id: account.id,
-              email: account.email,
-              displayName: account.displayName,
-              type: account.type,
-            }))
-          : []
-      )
-      setWhatsappAccounts(
-        Array.isArray(waRes)
-          ? waRes.map((account) => ({
-              id: account.id,
-              displayName: account.displayName,
-              phoneNumber: account.phoneNumber,
-            }))
-          : []
-      )
+      setMailAccounts(mailRes.items || [])
+      setWhatsappAccounts(waRes.items || [])
+
+      const settings = await readJson<{
+        workspace?: {
+          inboxPageSize?: number
+          whatsappInboxPageSize?: number
+          includeWarmupInInbox?: boolean
+        }
+      }>('/api/settings', {})
+      if (settings.workspace?.inboxPageSize) setEmailLimit(settings.workspace.inboxPageSize)
+      if (settings.workspace?.whatsappInboxPageSize) setWaConversationLimit(settings.workspace.whatsappInboxPageSize)
+      if (settings.workspace?.whatsappInboxPageSize) setWaMessageLimit(settings.workspace.whatsappInboxPageSize)
+      if (typeof settings.workspace?.includeWarmupInInbox === 'boolean') {
+        setIncludeWarmup(settings.workspace.includeWarmupInInbox)
+      }
     }
-    void loadAccounts()
+    void loadAccountsAndSettings()
   }, [])
 
+  const loadEmail = useCallback(async () => {
+    setEmailLoading(true)
+    const params = new URLSearchParams({
+      channel: 'email',
+      folderKind: emailFolder,
+      page: String(emailPage),
+      limit: String(emailLimit),
+    })
+    if (selectedMailAccountId) params.set('mailAccountId', selectedMailAccountId)
+    if (includeWarmup) params.set('includeWarmup', 'true')
+    if (deferredSearch.trim()) params.set('search', deferredSearch.trim())
+
+    const data = await readJson<PaginatedPayload<EmailInboxMessage> & { retention?: InboxRetention; messages?: EmailInboxMessage[] }>(
+      `/api/inbox?${params.toString()}`,
+      { ...emptyPage(emailLimit), messages: [] }
+    )
+    setEmailData({
+      items: data.items || data.messages || [],
+      total: data.total || 0,
+      page: data.page || 1,
+      pages: data.pages || 1,
+      limit: data.limit || emailLimit,
+    })
+    if (data.retention) setRetention(data.retention)
+    setEmailLoading(false)
+  }, [deferredSearch, emailFolder, emailLimit, emailPage, includeWarmup, selectedMailAccountId])
+
+  const loadWhatsApp = useCallback(async () => {
+    setWhatsappLoading(true)
+    const params = new URLSearchParams({
+      channel: 'whatsapp',
+      page: String(waConversationPage),
+      limit: String(waConversationLimit),
+      messagePage: String(waMessagePage),
+      messageLimit: String(waMessageLimit),
+    })
+    if (selectedWhatsappAccountId) params.set('whatsappAccountId', selectedWhatsappAccountId)
+    if (selectedConversationId) params.set('conversationId', selectedConversationId)
+    if (deferredWaSearch.trim()) params.set('search', deferredWaSearch.trim())
+
+    const data = await readJson<{
+      retention?: InboxRetention
+      conversations?: WhatsAppConversationSummary[]
+      items?: WhatsAppConversationSummary[]
+      total?: number
+      page?: number
+      pages?: number
+      limit?: number
+      selectedConversation?: WhatsAppConversationDetail | null
+      selectedConversationMessages?: WhatsAppConversationMessage[]
+      selectedConversationTotal?: number
+      messagePage?: number
+      messagePages?: number
+      messageLimit?: number
+    }>(
+      `/api/inbox?${params.toString()}`,
+      {}
+    )
+
+    const conversations = data.items || data.conversations || []
+    setWaConversationData({
+      items: conversations,
+      total: data.total || 0,
+      page: data.page || 1,
+      pages: data.pages || 1,
+      limit: data.limit || waConversationLimit,
+    })
+    setSelectedConversation((data.selectedConversation as WhatsAppConversationDetail | null) ?? null)
+    if (!selectedConversationId && conversations[0]?.id) {
+      setSelectedConversationId(conversations[0].id)
+    }
+    setWaMessageData({
+      items: data.selectedConversationMessages || [],
+      total: data.selectedConversationTotal || 0,
+      page: data.messagePage || 1,
+      pages: data.messagePages || 1,
+      limit: data.messageLimit || waMessageLimit,
+    })
+    if (data.retention) setRetention(data.retention)
+    setWhatsappLoading(false)
+  }, [deferredWaSearch, selectedConversationId, selectedWhatsappAccountId, waConversationLimit, waConversationPage, waMessageLimit, waMessagePage])
+
   useEffect(() => {
-    let cancelled = false
-    const loadEmail = async () => {
-      setEmailLoading(true)
-      const params = new URLSearchParams({
-        channel: 'email',
-        folderKind: emailFolder,
-      })
-      if (selectedMailAccountId) params.set('mailAccountId', selectedMailAccountId)
-      if (includeWarmup) params.set('includeWarmup', 'true')
-      if (deferredSearch.trim()) params.set('search', deferredSearch.trim())
-
-      const data = await fetch(`/api/inbox?${params.toString()}`).then((res) => res.json()).catch(() => ({ messages: [], retention }))
-      if (cancelled) return
-      setEmailMessages(Array.isArray(data.messages) ? data.messages : [])
-      if (data.retention) setRetention(data.retention)
-      setEmailLoading(false)
+    if (activeChannel === 'email') {
+      void loadEmail()
     }
-
-    void loadEmail()
-    const timer = setInterval(() => void loadEmail(), 10_000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [deferredSearch, emailFolder, includeWarmup, selectedMailAccountId])
+  }, [activeChannel, loadEmail])
 
   useEffect(() => {
-    let cancelled = false
-    const loadWhatsApp = async () => {
-      setWhatsappLoading(true)
-      const params = new URLSearchParams({ channel: 'whatsapp' })
-      if (selectedWhatsappAccountId) params.set('whatsappAccountId', selectedWhatsappAccountId)
-      if (selectedConversationId) params.set('conversationId', selectedConversationId)
-      if (deferredWaSearch.trim()) params.set('search', deferredWaSearch.trim())
-
-      const data = await fetch(`/api/inbox?${params.toString()}`).then((res) => res.json()).catch(() => ({ conversations: [], selectedConversation: null, retention }))
-      if (cancelled) return
-      const conversations = Array.isArray(data.conversations) ? data.conversations : []
-      setWaConversations(conversations)
-      setSelectedConversation((data.selectedConversation as WhatsAppConversationDetail | null) ?? null)
-      if (!selectedConversationId && conversations[0]?.id) {
-        setSelectedConversationId(conversations[0].id)
-      }
-      if (data.retention) setRetention(data.retention)
-      setWhatsappLoading(false)
+    if (activeChannel === 'whatsapp') {
+      void loadWhatsApp()
     }
-
-    void loadWhatsApp()
-    const timer = setInterval(() => void loadWhatsApp(), 10_000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [deferredWaSearch, selectedConversationId, selectedWhatsappAccountId])
+  }, [activeChannel, loadWhatsApp])
 
   const activeRetentionLabel = activeChannel === 'email' ? `${retention.emailDays} days` : `${retention.whatsappDays} days`
 
@@ -256,19 +305,7 @@ export default function InboxPage() {
     }
     setToast({ type: 'success', message: action === 'reply' ? 'Reply queued for sync and sent' : 'Inbox updated' })
     setReplyingMessageId(null)
-    setEmailMessages((current) =>
-      current.map((item) =>
-        item.id === message.id
-          ? {
-              ...item,
-              isRead: true,
-              isSpam: action === 'rescue-to-inbox' ? false : item.isSpam,
-              folderKind: action === 'rescue-to-inbox' ? 'INBOX' : item.folderKind,
-              repliedAt: action === 'reply' ? new Date().toISOString() : item.repliedAt,
-            }
-          : item
-      )
-    )
+    await loadEmail()
   }
 
   async function sendWhatsappReply() {
@@ -291,6 +328,7 @@ export default function InboxPage() {
     }
     setWaComposer('')
     setToast({ type: 'success', message: 'WhatsApp reply queued through the worker' })
+    await loadWhatsApp()
   }
 
   async function clearSyncedData(scope: 'email' | 'whatsapp' | 'all') {
@@ -304,71 +342,68 @@ export default function InboxPage() {
       return
     }
     setToast({ type: 'success', message: `Cleared synced ${scope} inbox cache` })
-    if (scope === 'all' || scope === 'email') setEmailMessages([])
+    if (scope === 'all' || scope === 'email') {
+      setEmailData(emptyPage(emailLimit))
+    }
     if (scope === 'all' || scope === 'whatsapp') {
-      setWaConversations([])
+      setWaConversationData(emptyPage(waConversationLimit))
       setSelectedConversation(null)
+      setWaMessageData(emptyPage(waMessageLimit))
     }
   }
 
   return (
-    <div className="animate-fade-in" style={{ display: 'grid', gap: '18px' }}>
+    <div className="animate-fade-in space-y-6">
       {toast ? (
         <div
-          style={{
-            position: 'fixed',
-            top: 20,
-            right: 20,
-            zIndex: 100,
-            padding: '10px 14px',
-            borderRadius: '10px',
-            background: toast.type === 'success' ? 'rgba(34,211,165,0.16)' : 'rgba(239,68,68,0.16)',
-            color: toast.type === 'success' ? 'var(--success)' : 'var(--error)',
-            border: `1px solid ${toast.type === 'success' ? 'rgba(34,211,165,0.25)' : 'rgba(239,68,68,0.25)'}`,
-          }}
+          className={`fixed right-5 top-5 z-[100] rounded-2xl border px-4 py-3 text-sm shadow-lg ${
+            toast.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-rose-200 bg-rose-50 text-rose-700'
+          }`}
         >
           {toast.message}
         </div>
       ) : null}
 
-      <Surface>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-muted)' }}>
-              Unified Inbox
-            </div>
-            <h1 style={{ fontSize: '32px', lineHeight: 1.1, fontWeight: 800, marginTop: '8px', color: 'var(--text-primary)' }}>
-              Manage email replies and software-owned WhatsApp conversations from one place
+      <section className="page-shell rounded-[34px] border border-white/70 px-8 py-8 shadow-[0_28px_80px_rgba(60,45,25,0.08)]">
+        <div className="flex flex-wrap items-start justify-between gap-5">
+          <div className="max-w-3xl space-y-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Unified inbox</div>
+            <h1 className="text-4xl font-semibold tracking-[-0.05em] text-[var(--text-primary)]">
+              Review email replies and managed WhatsApp conversations without forced refresh loops.
             </h1>
-            <p style={{ marginTop: '12px', fontSize: '14px', lineHeight: 1.7, color: 'var(--text-secondary)', maxWidth: '900px' }}>
-              Email shows synced mailbox traffic across every connected inbox. WhatsApp shows only conversations created by this software.
-              Synced inbox cache is auto-pruned after {activeRetentionLabel}, and you can clear it manually when you do not need the stored history.
+            <p className="max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+              Email shows synced mailbox traffic across connected inboxes. WhatsApp shows only conversations this software owns. Cached history is retained for {activeRetentionLabel} and can be cleared manually.
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div className="flex flex-wrap gap-2">
             <button className={activeChannel === 'email' ? 'btn-primary' : 'btn-ghost'} onClick={() => startTransition(() => setActiveChannel('email'))}>
               Email Inbox
             </button>
             <button className={activeChannel === 'whatsapp' ? 'btn-primary' : 'btn-ghost'} onClick={() => startTransition(() => setActiveChannel('whatsapp'))}>
               WhatsApp Inbox
             </button>
+            <button className="btn-ghost" onClick={() => void (activeChannel === 'email' ? loadEmail() : loadWhatsApp())}>
+              Refresh
+            </button>
             <button className="btn-ghost" onClick={() => void clearSyncedData(activeChannel)} disabled={busyAction === `clear:${activeChannel}`}>
               {busyAction === `clear:${activeChannel}` ? 'Clearing...' : `Clear ${activeChannel} cache`}
             </button>
           </div>
         </div>
-      </Surface>
+      </section>
 
       {activeChannel === 'email' ? (
         <>
-          <Surface>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '10px' }}>
-              <select className="input-base" value={emailFolder} onChange={(event) => setEmailFolder(event.target.value as 'INBOX' | 'SPAM' | 'SENT')}>
+          <section className="rounded-[28px] border border-black/8 bg-white/90 p-6">
+            <div className="grid gap-3 lg:grid-cols-4">
+              <select className="input-base" value={emailFolder} onChange={(event) => { setEmailFolder(event.target.value as 'INBOX' | 'SPAM' | 'SENT'); setEmailPage(1) }}>
                 <option value="INBOX">Inbox</option>
                 <option value="SPAM">Spam</option>
                 <option value="SENT">Sent</option>
               </select>
-              <select className="input-base" value={selectedMailAccountId} onChange={(event) => setSelectedMailAccountId(event.target.value)}>
+              <select className="input-base" value={selectedMailAccountId} onChange={(event) => { setSelectedMailAccountId(event.target.value); setEmailPage(1) }}>
                 <option value="">All mail accounts</option>
                 {mailAccounts.map((account) => (
                   <option key={account.id} value={account.id}>
@@ -376,54 +411,42 @@ export default function InboxPage() {
                   </option>
                 ))}
               </select>
-              <input className="input-base" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search subject, snippet, or sender" />
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                <input type="checkbox" checked={includeWarmup} onChange={(event) => setIncludeWarmup(event.target.checked)} />
+              <input className="input-base" value={search} onChange={(event) => { setSearch(event.target.value); setEmailPage(1) }} placeholder="Search subject, snippet, sender, or recipient" />
+              <label className="flex items-center gap-3 rounded-2xl border border-black/8 bg-[#fcfbf8] px-4 text-sm text-[var(--text-secondary)]">
+                <input type="checkbox" checked={includeWarmup} onChange={(event) => { setIncludeWarmup(event.target.checked); setEmailPage(1) }} />
                 Include warmup mail
               </label>
             </div>
-            <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              Showing {emailMessages.length} {emailFolder.toLowerCase()} messages from {selectedEmailCountLabel}.
+            <div className="mt-3 text-sm text-[var(--text-secondary)]">
+              Viewing {selectedEmailCountLabel}. Folder: {emailFolder}. Total messages: {emailData.total}.
             </div>
-          </Surface>
+          </section>
 
-          <Surface>
+          <section className="rounded-[28px] border border-black/8 bg-white/90 p-6">
             {emailLoading ? (
-              <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading inbox...</div>
-            ) : emailMessages.length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No synced email found for this view.</div>
+              <div className="py-12 text-sm text-[var(--text-muted)]">Loading inbox…</div>
+            ) : emailData.items.length === 0 ? (
+              <div className="py-12 text-sm text-[var(--text-muted)]">No synced email found for this view.</div>
             ) : (
-              <div style={{ display: 'grid', gap: '12px' }}>
-                {emailMessages.map((message) => (
-                  <div
-                    key={message.id}
-                    style={{
-                      padding: '16px',
-                      borderRadius: '16px',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                      <div style={{ maxWidth: '860px' }}>
-                        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {message.subject || '(no subject)'}
-                        </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+              <div className="space-y-4">
+                {emailData.items.map((message) => (
+                  <div key={message.id} className="rounded-[24px] border border-black/8 bg-[#fcfbf8] p-5">
+                    <div className="flex flex-wrap justify-between gap-4">
+                      <div className="max-w-3xl">
+                        <div className="text-base font-semibold text-[var(--text-primary)]">{message.subject || '(no subject)'}</div>
+                        <div className="mt-2 text-sm text-[var(--text-secondary)]">
                           {message.direction === 'inbound' ? `From ${message.fromEmail || 'Unknown'}` : `To ${message.toEmail || 'Unknown'}`} via {message.mailAccount.email}
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                          {formatDate(message.receivedAt || message.sentAt)} | {message.folderKind} | {message.isRead ? 'Read' : 'Unread'}
-                          {message.isWarmup ? ' | Warmup' : ''}
-                          {message.repliedAt ? ' | Replied' : ''}
+                        <div className="mt-1 text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                          {formatDate(message.receivedAt || message.sentAt)} • {message.folderKind} • {message.isRead ? 'Read' : 'Unread'}
+                          {message.isWarmup ? ' • Warmup' : ''}
+                          {message.repliedAt ? ' • Replied' : ''}
                         </div>
                         {message.snippet ? (
-                          <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '10px', lineHeight: 1.6 }}>
-                            {message.snippet}
-                          </div>
+                          <div className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{message.snippet}</div>
                         ) : null}
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignContent: 'start' }}>
+                      <div className="flex flex-wrap content-start gap-2">
                         {!message.isRead ? (
                           <button className="btn-ghost" onClick={() => void runEmailAction(message, 'mark-read')} disabled={busyAction === `mark-read:${message.id}`}>
                             Mark read
@@ -448,15 +471,14 @@ export default function InboxPage() {
                       </div>
                     </div>
                     {replyingMessageId === message.id ? (
-                      <div style={{ marginTop: '14px', display: 'grid', gap: '10px' }}>
+                      <div className="mt-4 grid gap-3">
                         <input className="input-base" value={emailReplySubject} onChange={(event) => setEmailReplySubject(event.target.value)} placeholder="Reply subject" />
                         <textarea
-                          className="input-base"
+                          className="input-base min-h-[140px] resize-y"
                           value={emailReplyBody}
                           onChange={(event) => setEmailReplyBody(event.target.value)}
-                          style={{ minHeight: '140px', resize: 'vertical' }}
                         />
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div className="flex gap-2">
                           <button className="btn-primary" onClick={() => void runEmailAction(message, 'reply')} disabled={busyAction === `reply:${message.id}`}>
                             {busyAction === `reply:${message.id}` ? 'Sending...' : 'Send reply'}
                           </button>
@@ -470,123 +492,152 @@ export default function InboxPage() {
                 ))}
               </div>
             )}
-          </Surface>
+            <div className="mt-5">
+              <PaginationControls
+                page={emailData.page}
+                pages={emailData.pages}
+                total={emailData.total}
+                limit={emailData.limit}
+                onPageChange={setEmailPage}
+                onLimitChange={(limit) => {
+                  setEmailLimit(limit)
+                  setEmailPage(1)
+                }}
+                label="messages"
+              />
+            </div>
+          </section>
         </>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '360px minmax(0,1fr)', gap: '18px' }}>
-          <Surface style={{ display: 'grid', gap: '12px', alignContent: 'start' }}>
-            <select className="input-base" value={selectedWhatsappAccountId} onChange={(event) => setSelectedWhatsappAccountId(event.target.value)}>
-              <option value="">All WhatsApp accounts</option>
-              {whatsappAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.displayName}
-                </option>
-              ))}
-            </select>
-            <input className="input-base" value={waSearch} onChange={(event) => setWaSearch(event.target.value)} placeholder="Search phone, name, or message text" />
-            <button className="btn-ghost" onClick={() => void clearSyncedData('whatsapp')} disabled={busyAction === 'clear:whatsapp'}>
-              {busyAction === 'clear:whatsapp' ? 'Clearing...' : 'Clear WhatsApp cache'}
-            </button>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Only conversations started by this software are listed here.
+        <section className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="space-y-4 rounded-[28px] border border-black/8 bg-white/90 p-6">
+            <div className="grid gap-3">
+              <select className="input-base" value={selectedWhatsappAccountId} onChange={(event) => { setSelectedWhatsappAccountId(event.target.value); setWaConversationPage(1) }}>
+                <option value="">All WhatsApp accounts</option>
+                {whatsappAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.displayName}
+                  </option>
+                ))}
+              </select>
+              <input className="input-base" value={waSearch} onChange={(event) => { setWaSearch(event.target.value); setWaConversationPage(1) }} placeholder="Search phone, name, or message text" />
             </div>
-            <div style={{ display: 'grid', gap: '10px' }}>
+            <div className="text-sm text-[var(--text-secondary)]">
+              Only software-managed conversations are listed here.
+            </div>
+            <div className="space-y-3">
               {whatsappLoading ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading conversations...</div>
-              ) : waConversations.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No managed WhatsApp conversations yet.</div>
+                <div className="py-10 text-sm text-[var(--text-muted)]">Loading conversations…</div>
+              ) : waConversationData.items.length === 0 ? (
+                <div className="py-10 text-sm text-[var(--text-muted)]">No managed WhatsApp conversations yet.</div>
               ) : (
-                waConversations.map((conversation) => (
+                waConversationData.items.map((conversation) => (
                   <button
                     key={conversation.id}
-                    className="btn-ghost"
-                    onClick={() => startTransition(() => setSelectedConversationId(conversation.id))}
-                    style={{
-                      textAlign: 'left',
-                      justifyContent: 'flex-start',
-                      padding: '14px',
-                      background: selectedConversationId === conversation.id ? 'rgba(99,102,241,0.12)' : undefined,
-                    }}
+                    className="w-full rounded-[22px] border border-black/8 bg-[#fcfbf8] p-4 text-left transition hover:border-[var(--accent)]"
+                    onClick={() => startTransition(() => { setSelectedConversationId(conversation.id); setWaMessagePage(1) })}
+                    style={selectedConversationId === conversation.id ? { borderColor: 'var(--accent)', background: 'rgba(242,236,226,0.9)' } : undefined}
                   >
-                    <div style={{ display: 'grid', gap: '6px', width: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-[var(--text-primary)]">
                           {conversation.participantName || conversation.participantPhone || conversation.participantJid}
-                        </span>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          {formatDate(conversation.lastMessageAt)}
-                        </span>
+                        </div>
+                        <div className="mt-1 text-xs text-[var(--text-secondary)]">
+                          {conversation.whatsappAccount.displayName}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {conversation.whatsappAccount.displayName}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {conversation.lastMessage ? `${conversation.lastMessage.direction === 'outbound' ? 'You' : 'Contact'}: ${conversation.lastMessage.body}` : 'No messages'}
-                      </div>
+                      <div className="text-[11px] text-[var(--text-muted)]">{formatDate(conversation.lastMessageAt)}</div>
+                    </div>
+                    <div className="mt-3 text-sm text-[var(--text-secondary)] line-clamp-2">
+                      {conversation.lastMessage ? `${conversation.lastMessage.direction === 'outbound' ? 'You' : 'Contact'}: ${conversation.lastMessage.body}` : 'No messages'}
                     </div>
                   </button>
                 ))
               )}
             </div>
-          </Surface>
+            <PaginationControls
+              page={waConversationData.page}
+              pages={waConversationData.pages}
+              total={waConversationData.total}
+              limit={waConversationData.limit}
+              onPageChange={setWaConversationPage}
+              onLimitChange={(limit) => {
+                setWaConversationLimit(limit)
+                setWaConversationPage(1)
+              }}
+              label="conversations"
+            />
+          </div>
 
-          <Surface style={{ minHeight: '620px', display: 'grid', gridTemplateRows: 'auto 1fr auto', gap: '12px' }}>
+          <div className="rounded-[28px] border border-black/8 bg-white/90 p-6">
             {selectedConversation ? (
-              <>
-                <div>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              <div className="grid min-h-[680px] grid-rows-[auto_1fr_auto] gap-4">
+                <div className="border-b border-black/8 pb-4">
+                  <div className="text-xl font-semibold text-[var(--text-primary)]">
                     {selectedConversation.participantName || selectedConversation.participantPhone || selectedConversation.participantJid}
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Routed through {selectedConversation.whatsappAccount.displayName} | {selectedConversation.whatsappAccount.connectionStatus}
+                  <div className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Routed through {selectedConversation.whatsappAccount.displayName} • {selectedConversation.whatsappAccount.connectionStatus}
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gap: '10px', alignContent: 'start', overflowY: 'auto', paddingRight: '4px' }}>
-                  {selectedConversation.messages.map((message) => (
+                <div className="grid gap-3 content-start overflow-y-auto pr-1">
+                  {waMessageData.items.map((message) => (
                     <div
                       key={message.id}
+                      className="max-w-[78%] rounded-[18px] px-4 py-3"
                       style={{
-                        maxWidth: '78%',
                         justifySelf: message.direction === 'outbound' ? 'end' : 'start',
-                        padding: '12px 14px',
-                        borderRadius: message.direction === 'outbound' ? '16px 16px 6px 16px' : '16px 16px 16px 6px',
-                        background: message.direction === 'outbound' ? 'rgba(99,102,241,0.14)' : 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: message.direction === 'outbound' ? 'rgba(214,170,102,0.16)' : '#fcfbf8',
+                        border: '1px solid rgba(60,45,25,0.08)',
                       }}
                     >
-                      <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-primary)' }}>{message.body}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                      <div className="text-sm leading-6 text-[var(--text-primary)]">{message.body}</div>
+                      <div className="mt-2 text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">
                         {formatDate(message.sentAt || message.receivedAt || message.createdAt)}
-                        {message.status ? ` | ${message.status}` : ''}
+                        {message.status ? ` • ${message.status}` : ''}
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <div style={{ display: 'grid', gap: '10px' }}>
+                <div className="space-y-3 border-t border-black/8 pt-4">
+                  <PaginationControls
+                    page={waMessageData.page}
+                    pages={waMessageData.pages}
+                    total={waMessageData.total}
+                    limit={waMessageData.limit}
+                    onPageChange={setWaMessagePage}
+                    onLimitChange={(limit) => {
+                      setWaMessageLimit(limit)
+                      setWaMessagePage(1)
+                    }}
+                    label="messages"
+                  />
                   <textarea
-                    className="input-base"
+                    className="input-base min-h-[120px] resize-y"
                     value={waComposer}
                     onChange={(event) => setWaComposer(event.target.value)}
                     placeholder="Reply to this conversation"
-                    style={{ minHeight: '120px', resize: 'vertical' }}
                   />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      Sending through the worker keeps this inbox aligned with campaign/API WhatsApp traffic.
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm text-[var(--text-secondary)]">
+                      Sending through the worker keeps this inbox aligned with campaign and API WhatsApp traffic.
                     </div>
                     <button className="btn-primary" onClick={() => void sendWhatsappReply()} disabled={busyAction === `whatsapp:${selectedConversation.id}` || !waComposer.trim()}>
                       {busyAction === `whatsapp:${selectedConversation.id}` ? 'Queueing...' : 'Send WhatsApp reply'}
                     </button>
                   </div>
                 </div>
-              </>
+              </div>
             ) : (
-              <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Select a managed WhatsApp conversation to view replies.</div>
+              <div className="py-20 text-sm text-[var(--text-muted)]">
+                Select a managed WhatsApp conversation to view replies.
+              </div>
             )}
-          </Surface>
-        </div>
+          </div>
+        </section>
       )}
     </div>
   )

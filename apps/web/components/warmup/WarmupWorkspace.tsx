@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PaginationControls } from '@/components/ui/pagination-controls'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
 
@@ -16,7 +17,7 @@ interface WarmupSettingsResponse {
   stageCounts: number[]
 }
 
-const FALLBACK_STAGE_COUNTS = [5, 8, 12, 18, 25, 35, 50, 65, 80, 100]
+const FALLBACK_STAGE_COUNTS = [5, 8, 12, 18, 25, 40, 60]
 
 export function WarmupWorkspace() {
   const dashboard = useMailAccountsDashboard()
@@ -185,7 +186,6 @@ export function WarmupWorkspace() {
                     <tr key={`stage-${index}`} className="border-t border-black/6">
                       <td className="px-4 py-4 text-sm font-medium text-[var(--text-primary)]">
                         Stage {index + 1}
-                        {index === settings.stageCounts.length - 1 ? '+' : ''}
                       </td>
                       <td className="px-4 py-4">
                         <Input
@@ -201,9 +201,9 @@ export function WarmupWorkspace() {
                         />
                       </td>
                       <td className="px-4 py-4 text-sm text-[var(--text-secondary)]">
-                        {index < 3
+                        {index < 2
                           ? 'Protect reputation while the mailbox is fresh.'
-                          : index < 7
+                          : index < 5
                             ? 'Increase sending gradually as engagement stabilizes.'
                             : 'Reserved for mature warmup behavior and high-confidence senders.'}
                       </td>
@@ -290,7 +290,7 @@ export function WarmupWorkspace() {
               </div>
               <Badge variant="outline">
                 <Users className="h-3 w-3" />
-                {dashboard.warmupRecipients.length} total
+                {dashboard.warmupRecipientsPagination.total} total
               </Badge>
             </div>
           </CardHeader>
@@ -374,7 +374,7 @@ export function WarmupWorkspace() {
             </Button>
 
             <div className="space-y-3">
-              {dashboard.warmupRecipients.slice(0, 8).map((recipient) => (
+              {dashboard.warmupRecipients.map((recipient) => (
                 <div
                   key={recipient.id}
                   className="flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-black/8 bg-[#fcfbf8] p-4"
@@ -415,6 +415,18 @@ export function WarmupWorkspace() {
                 </div>
               ))}
             </div>
+            <PaginationControls
+              page={dashboard.warmupRecipientsPagination.page}
+              pages={dashboard.warmupRecipientsPagination.pages}
+              total={dashboard.warmupRecipientsPagination.total}
+              limit={dashboard.warmupRecipientsPagination.limit}
+              onPageChange={dashboard.setRecipientPage}
+              onLimitChange={(limit) => {
+                dashboard.setRecipientLimit(limit)
+                dashboard.setRecipientPage(1)
+              }}
+              label="recipients"
+            />
           </CardContent>
         </Card>
 
@@ -423,7 +435,7 @@ export function WarmupWorkspace() {
             <CardTitle className="text-2xl tracking-[-0.03em]">Recent warmup logs</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 p-8 pt-2">
-            {dashboard.warmupLogs.slice(0, 10).map((log) => (
+            {dashboard.warmupLogs.map((log) => (
               <div key={log.id} className="rounded-[24px] border border-black/8 bg-[#fcfbf8] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="text-sm font-medium text-[var(--text-primary)]">{log.subject}</div>
@@ -435,10 +447,22 @@ export function WarmupWorkspace() {
                   From {log.senderMailAccount.displayName} to {log.recipientMailAccount?.displayName || log.recipientEmail}
                 </div>
                 <div className="mt-2 text-xs uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                  Stage {log.stage} • {new Date(log.sentAt).toLocaleString()}
+                  Stage {log.stage + 1} • {new Date(log.sentAt).toLocaleString()}
                 </div>
               </div>
             ))}
+            <PaginationControls
+              page={dashboard.warmupLogsPagination.page}
+              pages={dashboard.warmupLogsPagination.pages}
+              total={dashboard.warmupLogsPagination.total}
+              limit={dashboard.warmupLogsPagination.limit}
+              onPageChange={dashboard.setWarmupLogPage}
+              onLimitChange={(limit) => {
+                dashboard.setWarmupLogLimit(limit)
+                dashboard.setWarmupLogPage(1)
+              }}
+              label="warmup logs"
+            />
           </CardContent>
         </Card>
       </section>

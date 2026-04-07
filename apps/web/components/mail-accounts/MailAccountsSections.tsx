@@ -14,6 +14,7 @@ import {
 } from '@/components/mail-accounts/MailAccountsPrimitives'
 import { ZohoAccountForm } from '@/components/mail-accounts/ZohoAccountForm'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { PaginationControls } from '@/components/ui/pagination-controls'
 import type {
   ActiveTab,
   DomainDiagnostics,
@@ -21,6 +22,7 @@ import type {
   DomainHealthSummary,
   MailAccount,
   MailboxMessage,
+  PaginatedResponse,
   WarmupLog,
   WarmupOverview,
   WarmupRecipient,
@@ -192,7 +194,13 @@ export function DomainPanels(props: {
 export function AccountsView(props: {
   loading: boolean
   accounts: MailAccount[]
+  accountsPagination: PaginatedResponse<MailAccount>
+  setAccountsPage: (page: number) => void
+  setAccountsLimit: (limit: number) => void
   whatsappAccounts: WhatsAppAccount[]
+  whatsappPagination: PaginatedResponse<WhatsAppAccount>
+  setWhatsAppPage: (page: number) => void
+  setWhatsAppLimit: (limit: number) => void
   pendingDailyLimits: Record<string, string>
   setPendingDailyLimits: React.Dispatch<React.SetStateAction<Record<string, string>>>
   handleWarmupStatusChange: (id: string, status: MailAccount['warmupStatus']) => void
@@ -211,7 +219,10 @@ export function AccountsView(props: {
   activeMailboxAccountId: string | null
   activeMailboxFolder: 'INBOX' | 'SPAM' | 'SENT'
   mailboxMessages: MailboxMessage[]
+  mailboxPagination: PaginatedResponse<MailboxMessage>
   mailboxLoading: boolean
+  handleMailboxPageChange: (page: number) => void
+  handleMailboxLimitChange: (limit: number) => void
   handleRunWarmupNow: (id: string) => void
   handleRunMailboxSyncNow: (id: string) => void
   handleToggleMailActive: (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => void
@@ -376,12 +387,38 @@ export function AccountsView(props: {
                         </div>
                       ))}
                     </div>
+                    {props.mailboxPagination.total > 0 ? (
+                      <div style={{ marginTop: '12px' }}>
+                        <PaginationControls
+                          page={props.mailboxPagination.page}
+                          pages={props.mailboxPagination.pages}
+                          total={props.mailboxPagination.total}
+                          limit={props.mailboxPagination.limit}
+                          onPageChange={props.handleMailboxPageChange}
+                          onLimitChange={props.handleMailboxLimitChange}
+                          label="messages"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
             ))}
           </div>
         )}
+        {props.accountsPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.accountsPagination.page}
+              pages={props.accountsPagination.pages}
+              total={props.accountsPagination.total}
+              limit={props.accountsPagination.limit}
+              onPageChange={props.setAccountsPage}
+              onLimitChange={props.setAccountsLimit}
+              label="mailboxes"
+            />
+          </div>
+        ) : null}
       </div>
 
       <div style={panelStyle}>
@@ -411,7 +448,14 @@ export function AccountsView(props: {
                       <div style={{ marginTop: '12px', padding: '12px', borderRadius: '14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                         <div style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: 600 }}>QR pending for pairing</div>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                          Open WhatsApp on your phone, go to Linked Devices, and scan the QR from the live session view.
+                          Open WhatsApp on your phone, go to Linked Devices, and scan the QR below.
+                        </div>
+                        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(wa.lastQr)}`}
+                            alt={`Pair ${wa.displayName}`}
+                            style={{ width: '220px', height: '220px', borderRadius: '16px', background: '#fff', padding: '10px' }}
+                          />
                         </div>
                       </div>
                     ) : null}
@@ -430,6 +474,19 @@ export function AccountsView(props: {
             ))}
           </div>
         )}
+        {props.whatsappPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.whatsappPagination.page}
+              pages={props.whatsappPagination.pages}
+              total={props.whatsappPagination.total}
+              limit={props.whatsappPagination.limit}
+              onPageChange={props.setWhatsAppPage}
+              onLimitChange={props.setWhatsAppLimit}
+              label="WhatsApp accounts"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -439,6 +496,9 @@ export function WarmupView(props: {
   warmupOverview: WarmupOverview | null
   loading: boolean
   warmupRecipients: WarmupRecipient[]
+  warmupRecipientsPagination: PaginatedResponse<WarmupRecipient>
+  setRecipientPage: (page: number) => void
+  setRecipientLimit: (limit: number) => void
   recipientForm: { email: string; name: string; isActive: boolean }
   setRecipientForm: React.Dispatch<React.SetStateAction<{ email: string; name: string; isActive: boolean }>>
   recipientSaving: boolean
@@ -449,6 +509,9 @@ export function WarmupView(props: {
   handleToggleWarmupRecipient: (id: string, current: boolean) => void
   handleDeleteWarmupRecipient: (id: string, email: string) => void
   warmupLogs: WarmupLog[]
+  warmupLogsPagination: PaginatedResponse<WarmupLog>
+  setWarmupLogPage: (page: number) => void
+  setWarmupLogLimit: (limit: number) => void
   recipientPoolHealthy: boolean
   activeMailboxPool: number
   activeCustomRecipients: number
@@ -513,6 +576,19 @@ export function WarmupView(props: {
             ))
           )}
         </div>
+        {props.warmupRecipientsPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.warmupRecipientsPagination.page}
+              pages={props.warmupRecipientsPagination.pages}
+              total={props.warmupRecipientsPagination.total}
+              limit={props.warmupRecipientsPagination.limit}
+              onPageChange={props.setRecipientPage}
+              onLimitChange={props.setRecipientLimit}
+              label="recipients"
+            />
+          </div>
+        ) : null}
       </div>
 
       <div style={panelStyle}>
@@ -545,6 +621,19 @@ export function WarmupView(props: {
             ))}
           </div>
         )}
+        {props.warmupLogsPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.warmupLogsPagination.page}
+              pages={props.warmupLogsPagination.pages}
+              total={props.warmupLogsPagination.total}
+              limit={props.warmupLogsPagination.limit}
+              onPageChange={props.setWarmupLogPage}
+              onLimitChange={props.setWarmupLogLimit}
+              label="warmup logs"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )

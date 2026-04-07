@@ -48,7 +48,13 @@ function MailAccountsPageContent() {
         <AccountsView
           loading={dashboard.loading}
           accounts={dashboard.accounts}
+          accountsPagination={dashboard.accountsPagination}
+          setAccountsPage={dashboard.setAccountsPage}
+          setAccountsLimit={dashboard.setAccountsLimit}
           whatsappAccounts={dashboard.whatsappAccounts}
+          whatsappPagination={dashboard.whatsappPagination}
+          setWhatsAppPage={dashboard.setWhatsAppPage}
+          setWhatsAppLimit={dashboard.setWhatsAppLimit}
           pendingDailyLimits={dashboard.pendingDailyLimits}
           setPendingDailyLimits={dashboard.setPendingDailyLimits}
           handleWarmupStatusChange={dashboard.handleWarmupStatusChange}
@@ -63,7 +69,10 @@ function MailAccountsPageContent() {
           activeMailboxAccountId={dashboard.activeMailboxAccountId}
           activeMailboxFolder={dashboard.activeMailboxFolder}
           mailboxMessages={dashboard.mailboxMessages}
+          mailboxPagination={dashboard.mailboxPagination}
           mailboxLoading={dashboard.mailboxLoading}
+          handleMailboxPageChange={dashboard.handleMailboxPageChange}
+          handleMailboxLimitChange={dashboard.handleMailboxLimitChange}
           handleRunWarmupNow={dashboard.handleRunWarmupNow}
           handleRunMailboxSyncNow={dashboard.handleRunMailboxSyncNow}
           handleToggleMailActive={dashboard.handleToggleMailActive}
