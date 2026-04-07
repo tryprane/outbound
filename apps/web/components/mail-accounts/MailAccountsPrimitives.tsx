@@ -3,18 +3,18 @@
 import { StatusBadge } from '@/components/shared/StatusBadge'
 
 export const panelStyle: React.CSSProperties = {
-  padding: '18px',
-  borderRadius: '20px',
-  border: '1px solid rgba(255,255,255,0.08)',
-  background: 'linear-gradient(180deg, rgba(22,22,31,0.96), rgba(14,14,22,0.96))',
-  boxShadow: '0 18px 45px rgba(0,0,0,0.25)',
+  padding: '22px',
+  borderRadius: '28px',
+  border: '1px solid rgba(60, 45, 25, 0.08)',
+  background: 'rgba(255,255,255,0.88)',
+  boxShadow: '0 20px 52px rgba(60, 45, 25, 0.08)',
 }
 
 export const surfaceCardStyle: React.CSSProperties = {
-  padding: '16px',
-  borderRadius: '16px',
-  border: '1px solid rgba(255,255,255,0.08)',
-  background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))',
+  padding: '18px',
+  borderRadius: '22px',
+  border: '1px solid rgba(60, 45, 25, 0.08)',
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,247,241,0.95))',
 }
 
 export function StatCard({ value, label, color }: { value: number | string; label: string; color: string }) {

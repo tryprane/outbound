@@ -13,6 +13,8 @@
 # - VPS_SSH_PASSPHRASE
 # - POSTGRES_PASSWORD
 # - NEXTAUTH_SECRET
+# - ADMIN_EMAIL
+# - ADMIN_PASSWORD
 # - ENCRYPTION_KEY
 # - GOOGLE_CLIENT_ID
 # - GOOGLE_CLIENT_SECRET
@@ -29,6 +31,8 @@ VPS_SSH_KEY_FILE=.\mykey.pem
 VPS_SSH_PASSPHRASE=1234567
 POSTGRES_PASSWORD=replace-with-strong-random-password
 NEXTAUTH_SECRET=replace-with-long-random-secret
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=replace-with-strong-admin-password
 ENCRYPTION_KEY=replace-with-long-random-key
 GOOGLE_CLIENT_ID=replace-with-google-client-id
 GOOGLE_CLIENT_SECRET=replace-with-google-client-secret

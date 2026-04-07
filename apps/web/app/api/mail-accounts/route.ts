@@ -1,20 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDomainDiagnostics, getDomainDiagnosticsBlockers, type DomainProviderHint } from '@/lib/domainDiagnostics'
+import { getDomainDiagnostics, type DomainProviderHint } from '@/lib/domainDiagnostics'
 import { prisma } from '@/lib/prisma'
 import { getMailboxSyncQueue } from '@/lib/mailboxSyncQueue'
 import { getWhatsAppSessionQueue } from '@/lib/whatsappSessionQueue'
 import { getWarmupQueue } from '@/lib/warmupQueue'
+import { buildPaginatedResult, parsePaginationParams } from '@/lib/pagination'
 import { extractEmailDomain, providerHintFromType } from '@/lib/campaignGuardrails'
 import { markMailboxMessageAsRead, rescueMailboxMessageToInbox, replyToMailboxMessage } from '@/lib/mailboxActions'
+import {
+  DEFAULT_WARMUP_SETTINGS,
+  WARMUP_SETTINGS_KEY,
+  parseWarmupSettingsValue,
+  recommendedLimitFromStage,
+} from '@/lib/warmupSettings'
 
-const WARMUP_LIMIT_PLAN = [5, 10, 20, 35, 50, 75]
 type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
 const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox'
 const ZOHO_API_RECONNECT_MESSAGE = 'Reconnect Zoho account to restore mailbox API access'
 
-function recommendedLimitFromStage(stage: number): number {
-  const idx = Math.max(0, Math.min(stage, WARMUP_LIMIT_PLAN.length - 1))
-  return WARMUP_LIMIT_PLAN[idx]
+async function loadWarmupSettings() {
+  const record = await prisma.systemSetting.findUnique({
+    where: { key: WARMUP_SETTINGS_KEY },
+  })
+
+  return parseWarmupSettingsValue(record?.value) ?? DEFAULT_WARMUP_SETTINGS
 }
 
 type DomainHealthSummary = {
@@ -235,19 +244,25 @@ export async function GET(request: NextRequest) {
   try {
     const resource = request.nextUrl.searchParams.get('resource')
     if (resource === 'warmup-recipients') {
-      const recipients = await prisma.warmupRecipient.findMany({
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          isActive: true,
-          isSystem: true,
-          mailAccountId: true,
-          createdAt: true,
-        },
-      })
-      return NextResponse.json(recipients)
+      const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
+      const [items, total] = await Promise.all([
+        prisma.warmupRecipient.findMany({
+          orderBy: { createdAt: 'desc' },
+          skip: pagination.skip,
+          take: pagination.limit,
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            isActive: true,
+            isSystem: true,
+            mailAccountId: true,
+            createdAt: true,
+          },
+        }),
+        prisma.warmupRecipient.count(),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
     }
     if (resource === 'warmup-overview') {
       const accounts = await prisma.mailAccount.findMany({
@@ -267,33 +282,45 @@ export async function GET(request: NextRequest) {
         paused: accounts.filter((a) => a.warmupStatus === 'PAUSED').length,
         autoEnabled: accounts.filter((a) => a.warmupAutoEnabled).length,
         activeMailboxes: accounts.filter((a) => a.isActive).length,
+        activeCustomRecipients: await prisma.warmupRecipient.count({
+          where: {
+            isActive: true,
+            isSystem: false,
+          },
+        }),
+        totalRecipients: await prisma.warmupRecipient.count(),
       }
       return NextResponse.json(summary)
     }
     if (resource === 'warmup-logs') {
-      const limit = Math.max(1, Math.min(Number(request.nextUrl.searchParams.get('limit') || 25), 100))
+      const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
       const senderId = request.nextUrl.searchParams.get('senderId')
-      const logs = await prisma.warmupMailLog.findMany({
-        where: senderId ? { senderMailAccountId: senderId } : undefined,
-        orderBy: { sentAt: 'desc' },
-        take: limit,
-        select: {
-          id: true,
-          senderMailAccountId: true,
-          recipientEmail: true,
-          recipientType: true,
-          recipientMailAccountId: true,
-          direction: true,
-          subject: true,
-          status: true,
-          stage: true,
-          sentAt: true,
-          errorMessage: true,
-          senderMailAccount: { select: { email: true, displayName: true } },
-          recipientMailAccount: { select: { email: true, displayName: true } },
-        },
-      })
-      return NextResponse.json(logs)
+      const where = senderId ? { senderMailAccountId: senderId } : undefined
+      const [items, total] = await Promise.all([
+        prisma.warmupMailLog.findMany({
+          where,
+          orderBy: { sentAt: 'desc' },
+          skip: pagination.skip,
+          take: pagination.limit,
+          select: {
+            id: true,
+            senderMailAccountId: true,
+            recipientEmail: true,
+            recipientType: true,
+            recipientMailAccountId: true,
+            direction: true,
+            subject: true,
+            status: true,
+            stage: true,
+            sentAt: true,
+            errorMessage: true,
+            senderMailAccount: { select: { email: true, displayName: true } },
+            recipientMailAccount: { select: { email: true, displayName: true } },
+          },
+        }),
+        prisma.warmupMailLog.count({ where }),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
     }
     if (resource === 'mailbox-health') {
       const snapshots = await prisma.warmupHealthSnapshot.findMany({
@@ -324,41 +351,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(snapshots)
     }
     if (resource === 'mailbox-messages') {
+      const pagination = parsePaginationParams(request, { defaultLimit: 25, maxLimit: 100 })
       const mailAccountId = request.nextUrl.searchParams.get('mailAccountId') || undefined
       const folderKind = request.nextUrl.searchParams.get('folderKind') || undefined
-      const messages = await prisma.mailboxMessage.findMany({
-        where: {
-          ...(mailAccountId ? { mailAccountId } : {}),
-          ...(folderKind ? { folderKind: folderKind as 'INBOX' | 'SPAM' | 'SENT' | 'ARCHIVE' | 'OTHER' } : {}),
-        },
-        orderBy: [{ receivedAt: 'desc' }, { sentAt: 'desc' }],
-        take: 100,
-        select: {
-          id: true,
-          mailAccountId: true,
-          providerMessageId: true,
-          providerThreadId: true,
-          folderKind: true,
-          folderName: true,
-          direction: true,
-          fromEmail: true,
-          toEmail: true,
-          subject: true,
-          snippet: true,
-          sentAt: true,
-          receivedAt: true,
-          isWarmup: true,
-          isRead: true,
-          isStarred: true,
-          isSpam: true,
-          openedAt: true,
-          repliedAt: true,
-          rescuedAt: true,
-          createdAt: true,
-          mailAccount: { select: { email: true, displayName: true, type: true } },
-        },
-      })
-      return NextResponse.json(messages)
+      const where = {
+        ...(mailAccountId ? { mailAccountId } : {}),
+        ...(folderKind ? { folderKind: folderKind as 'INBOX' | 'SPAM' | 'SENT' | 'ARCHIVE' | 'OTHER' } : {}),
+      }
+      const [items, total] = await Promise.all([
+        prisma.mailboxMessage.findMany({
+          where,
+          orderBy: [{ receivedAt: 'desc' }, { sentAt: 'desc' }],
+          skip: pagination.skip,
+          take: pagination.limit,
+          select: {
+            id: true,
+            mailAccountId: true,
+            providerMessageId: true,
+            providerThreadId: true,
+            folderKind: true,
+            folderName: true,
+            direction: true,
+            fromEmail: true,
+            toEmail: true,
+            subject: true,
+            snippet: true,
+            sentAt: true,
+            receivedAt: true,
+            isWarmup: true,
+            isRead: true,
+            isStarred: true,
+            isSpam: true,
+            openedAt: true,
+            repliedAt: true,
+            rescuedAt: true,
+            createdAt: true,
+            mailAccount: { select: { email: true, displayName: true, type: true } },
+          },
+        }),
+        prisma.mailboxMessage.count({ where }),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
     }
     if (resource === 'domain-health') {
       const [domains, history] = await Promise.all([
@@ -411,98 +444,112 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(diagnostics)
     }
     if (resource === 'whatsapp-accounts') {
-      const accounts = await prisma.whatsAppAccount.findMany({
-        orderBy: { createdAt: 'asc' },
-        select: {
-          id: true,
-          displayName: true,
-          phoneNumber: true,
-          isActive: true,
-          connectionStatus: true,
-          sessionKey: true,
-          lastQr: true,
-          lastConnectedAt: true,
-          lastError: true,
-          dailyLimit: true,
-          sentToday: true,
-          lastMessageSentAt: true,
-          createdAt: true,
-          _count: { select: { sentMessages: true } },
-        },
-      })
-      return NextResponse.json(accounts)
-    }
-
-    const accounts = await prisma.mailAccount.findMany({
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        type: true,
-        email: true,
-        displayName: true,
-        smtpHost: true,
-        smtpPort: true,
-        smtpPassword: true,
-        dailyLimit: true,
-        sentToday: true,
-        isActive: true,
-        warmupStatus: true,
-        warmupStage: true,
-        warmupStartedAt: true,
-        warmupCompletedAt: true,
-        warmupPausedAt: true,
-        recommendedDailyLimit: true,
-        warmupAutoEnabled: true,
-        createdAt: true,
-        lastMailSentAt: true,
-        lastResetAt: true,
-        tokenExpiry: true,
-        zohoRefreshToken: true,
-        zohoAccountId: true,
-        zohoRegion: true,
-        zohoTokenExpiry: true,
-        zohoMailboxMode: true,
-        zohoLastTokenRefreshAt: true,
-        zohoAuthError: true,
-        imapHost: true,
-        imapPort: true,
-        imapSecure: true,
-        mailboxLastSyncedAt: true,
-        mailboxSyncStatus: true,
-        mailboxSyncError: true,
-        mailboxHealthScore: true,
-        mailboxHealthStatus: true,
-        _count: { select: { sentMails: true } },
-        warmupHealthSnapshots: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+      const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
+      const [items, total] = await Promise.all([
+        prisma.whatsAppAccount.findMany({
+          orderBy: { createdAt: 'asc' },
+          skip: pagination.skip,
+          take: pagination.limit,
           select: {
             id: true,
-            periodEnd: true,
-            healthScore: true,
-            healthStatus: true,
-            inboxRate: true,
-            spamRate: true,
-            readRate: true,
-            replyRate: true,
-            rescueRate: true,
-            notes: true,
+            displayName: true,
+            phoneNumber: true,
+            isActive: true,
+            connectionStatus: true,
+            sessionKey: true,
+            lastQr: true,
+            lastConnectedAt: true,
+            lastError: true,
+            dailyLimit: true,
+            sentToday: true,
+            lastMessageSentAt: true,
+            createdAt: true,
+            _count: { select: { sentMessages: true } },
+          },
+        }),
+        prisma.whatsAppAccount.count(),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
+    }
+
+    const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
+    const [accounts, total] = await Promise.all([
+      prisma.mailAccount.findMany({
+        orderBy: { createdAt: 'asc' },
+        skip: pagination.skip,
+        take: pagination.limit,
+        select: {
+          id: true,
+          type: true,
+          email: true,
+          displayName: true,
+          smtpHost: true,
+          smtpPort: true,
+          smtpPassword: true,
+          dailyLimit: true,
+          sentToday: true,
+          isActive: true,
+          warmupStatus: true,
+          warmupStage: true,
+          warmupStartedAt: true,
+          warmupCompletedAt: true,
+          warmupPausedAt: true,
+          recommendedDailyLimit: true,
+          warmupAutoEnabled: true,
+          createdAt: true,
+          lastMailSentAt: true,
+          lastResetAt: true,
+          tokenExpiry: true,
+          zohoRefreshToken: true,
+          zohoAccountId: true,
+          zohoRegion: true,
+          zohoTokenExpiry: true,
+          zohoMailboxMode: true,
+          zohoLastTokenRefreshAt: true,
+          zohoAuthError: true,
+          imapHost: true,
+          imapPort: true,
+          imapSecure: true,
+          mailboxLastSyncedAt: true,
+          mailboxSyncStatus: true,
+          mailboxSyncError: true,
+          mailboxHealthScore: true,
+          mailboxHealthStatus: true,
+          _count: { select: { sentMails: true } },
+          warmupHealthSnapshots: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              periodEnd: true,
+              healthScore: true,
+              healthStatus: true,
+              inboxRate: true,
+              spamRate: true,
+              readRate: true,
+              replyRate: true,
+              rescueRate: true,
+              notes: true,
+            },
           },
         },
-      },
-    })
+      }),
+      prisma.mailAccount.count(),
+    ])
 
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    const warmupLogs = await prisma.warmupMailLog.findMany({
-      where: {
-        senderMailAccountId: { in: accounts.map((a) => a.id) },
-        sentAt: { gte: since },
-      },
-      select: {
-        senderMailAccountId: true,
-        status: true,
-      },
-    })
+    const warmupLogs = accounts.length
+      ? await prisma.warmupMailLog.findMany({
+          where: {
+            senderMailAccountId: { in: accounts.map((a) => a.id) },
+            sentAt: { gte: since },
+          },
+          select: {
+            senderMailAccountId: true,
+            status: true,
+          },
+        })
+      : []
 
     const statsByAccount = new Map<string, { total: number; sent: number; failed: number; bounced: number }>()
     for (const log of warmupLogs) {
@@ -559,7 +606,7 @@ export async function GET(request: NextRequest) {
         },
       }
     })
-    return NextResponse.json(withWarmupStats)
+    return NextResponse.json(buildPaginatedResult(withWarmupStats, total, pagination))
   } catch (error) {
     console.error('[Mail Accounts GET]', error)
     return NextResponse.json({ error: 'Failed to fetch accounts' }, { status: 500 })
@@ -821,6 +868,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
+    const warmupSettings = await loadWarmupSettings()
     const body = await request.json() as {
       id: string
       isActive?: boolean
@@ -846,20 +894,6 @@ export async function PATCH(request: NextRequest) {
         { error: 'Only WARMED mailboxes can be activated for campaign sending.' },
         { status: 400 }
       )
-    }
-    if (isActive === true) {
-      const domain = extractEmailDomain(account.email)
-      if (domain) {
-        const providerHint = providerHintFromType(account.type)
-        const diagnostics = await getDomainDiagnostics(domain, providerHint)
-        const blockers = getDomainDiagnosticsBlockers(diagnostics)
-        if (blockers.length > 0) {
-          return NextResponse.json(
-            { error: `Mailbox activation blocked by domain safety checks: ${blockers.join(', ')}` },
-            { status: 400 }
-          )
-        }
-      }
     }
 
     const data: Record<string, unknown> = {
@@ -887,7 +921,7 @@ export async function PATCH(request: NextRequest) {
         data.warmupStartedAt = null
         data.warmupCompletedAt = null
         data.warmupPausedAt = null
-        data.recommendedDailyLimit = recommendedLimitFromStage(0)
+        data.recommendedDailyLimit = recommendedLimitFromStage(0, warmupSettings.stageCounts)
         data.isActive = false
       }
       if (warmupStatus === 'WARMING') {
@@ -895,15 +929,21 @@ export async function PATCH(request: NextRequest) {
         data.warmupStage = stage
         data.warmupStartedAt = account.warmupStartedAt ?? new Date()
         data.warmupPausedAt = null
-        data.recommendedDailyLimit = recommendedLimitFromStage(stage)
+        data.recommendedDailyLimit = recommendedLimitFromStage(stage, warmupSettings.stageCounts)
         data.isActive = false
       }
       if (warmupStatus === 'WARMED') {
-        const stage = Math.max(warmupStage ?? account.warmupStage ?? 0, WARMUP_LIMIT_PLAN.length - 1)
+        const stage = Math.max(
+          warmupStage ?? account.warmupStage ?? 0,
+          warmupSettings.stageCounts.length - 1
+        )
         data.warmupStage = stage
         data.warmupCompletedAt = account.warmupCompletedAt ?? new Date()
         data.warmupPausedAt = null
-        data.recommendedDailyLimit = Math.max(dailyLimit ?? account.dailyLimit, recommendedLimitFromStage(stage))
+        data.recommendedDailyLimit = Math.max(
+          dailyLimit ?? account.dailyLimit,
+          recommendedLimitFromStage(stage, warmupSettings.stageCounts)
+        )
       }
       if (warmupStatus === 'PAUSED') {
         data.warmupPausedAt = new Date()
@@ -912,7 +952,7 @@ export async function PATCH(request: NextRequest) {
     } else if (warmupStage !== undefined) {
       const stage = Math.max(0, warmupStage)
       data.warmupStage = stage
-      data.recommendedDailyLimit = recommendedLimitFromStage(stage)
+      data.recommendedDailyLimit = recommendedLimitFromStage(stage, warmupSettings.stageCounts)
     }
 
     const updated = await prisma.mailAccount.update({
@@ -921,6 +961,12 @@ export async function PATCH(request: NextRequest) {
     })
 
     if (runWarmupNow) {
+      if (!warmupSettings.globalEnabled) {
+        return NextResponse.json(
+          { error: 'Global warmup is disabled. Turn it back on in the warmup workspace first.' },
+          { status: 400 }
+        )
+      }
       if (updated.warmupStatus !== 'WARMING') {
         return NextResponse.json(
           { error: 'Warmup can only be triggered while the mailbox is in WARMING status.' },

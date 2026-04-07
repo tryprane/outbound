@@ -1,5 +1,13 @@
 'use client'
 
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  page: number
+  pages: number
+  limit: number
+}
+
 export interface MailAccount {
   id: string
   type: 'zoho' | 'gmail'
@@ -68,6 +76,8 @@ export interface WhatsAppAccount {
   connectionStatus: 'DISCONNECTED' | 'QR_PENDING' | 'CONNECTED' | 'ERROR'
   lastQr: string | null
   lastError: string | null
+  lastConnectedAt?: string | null
+  createdAt?: string
   dailyLimit: number
   sentToday: number
   _count: { sentMessages: number }
@@ -116,6 +126,8 @@ export interface WarmupOverview {
   paused: number
   autoEnabled: number
   activeMailboxes: number
+  activeCustomRecipients?: number
+  totalRecipients?: number
 }
 
 export interface WarmupLog {
@@ -205,4 +217,4 @@ export interface DomainHealthSnapshot {
   createdAt: string
 }
 
-export type ActiveTab = 'accounts' | 'warmup' | 'add-zoho' | 'add-gmail' | 'add-whatsapp'
+export type ActiveTab = 'accounts' | 'add-zoho' | 'add-gmail' | 'add-whatsapp'

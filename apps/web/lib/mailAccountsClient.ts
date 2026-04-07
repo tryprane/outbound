@@ -4,6 +4,7 @@ import type {
   DomainDiagnostics,
   MailAccount,
   MailboxMessage,
+  PaginatedResponse,
   WarmupLog,
   WarmupOverview,
   WarmupRecipient,
@@ -22,11 +23,35 @@ async function readJson<T>(input: RequestInfo | URL, init?: RequestInit, fallbac
 
 export async function fetchMailAccountsDashboardData() {
   const [mailAccounts, whatsappAccounts, warmupRecipients, warmupOverview, warmupLogs, domainHealth] = await Promise.all([
-    readJson<MailAccount[]>('/api/mail-accounts', undefined, []),
-    readJson<WhatsAppAccount[]>('/api/mail-accounts?resource=whatsapp-accounts', undefined, []),
-    readJson<WarmupRecipient[]>('/api/mail-accounts?resource=warmup-recipients', undefined, []),
+    readJson<PaginatedResponse<MailAccount>>('/api/mail-accounts?page=1&limit=10', undefined, {
+      items: [],
+      total: 0,
+      page: 1,
+      pages: 1,
+      limit: 10,
+    }),
+    readJson<PaginatedResponse<WhatsAppAccount>>('/api/mail-accounts?resource=whatsapp-accounts&page=1&limit=10', undefined, {
+      items: [],
+      total: 0,
+      page: 1,
+      pages: 1,
+      limit: 10,
+    }),
+    readJson<PaginatedResponse<WarmupRecipient>>('/api/mail-accounts?resource=warmup-recipients&page=1&limit=10', undefined, {
+      items: [],
+      total: 0,
+      page: 1,
+      pages: 1,
+      limit: 10,
+    }),
     readJson<WarmupOverview | null>('/api/mail-accounts?resource=warmup-overview', undefined, null),
-    readJson<WarmupLog[]>('/api/mail-accounts?resource=warmup-logs&limit=25', undefined, []),
+    readJson<PaginatedResponse<WarmupLog>>('/api/mail-accounts?resource=warmup-logs&page=1&limit=10', undefined, {
+      items: [],
+      total: 0,
+      page: 1,
+      pages: 1,
+      limit: 10,
+    }),
     readJson<{ domains: DomainHealthSummary[]; history: DomainHealthSnapshot[] }>(
       '/api/mail-accounts?resource=domain-health',
       undefined,
@@ -63,7 +88,13 @@ export async function deleteMailAccount(id: string) {
 export async function fetchMailboxMessages(mailAccountId: string, folderKind?: string) {
   const sp = new URLSearchParams({ resource: 'mailbox-messages', mailAccountId })
   if (folderKind) sp.set('folderKind', folderKind)
-  return readJson<MailboxMessage[]>(`/api/mail-accounts?${sp.toString()}`, undefined, [])
+  return readJson<PaginatedResponse<MailboxMessage>>(`/api/mail-accounts?${sp.toString()}`, undefined, {
+    items: [],
+    total: 0,
+    page: 1,
+    pages: 1,
+    limit: 25,
+  })
 }
 
 export async function patchMailboxMessage(body: Record<string, unknown>) {

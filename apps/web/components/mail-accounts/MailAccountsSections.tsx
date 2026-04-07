@@ -14,6 +14,7 @@ import {
 } from '@/components/mail-accounts/MailAccountsPrimitives'
 import { ZohoAccountForm } from '@/components/mail-accounts/ZohoAccountForm'
 import { StatusBadge } from '@/components/shared/StatusBadge'
+import { PaginationControls } from '@/components/ui/pagination-controls'
 import type {
   ActiveTab,
   DomainDiagnostics,
@@ -21,6 +22,7 @@ import type {
   DomainHealthSummary,
   MailAccount,
   MailboxMessage,
+  PaginatedResponse,
   WarmupLog,
   WarmupOverview,
   WarmupRecipient,
@@ -34,13 +36,9 @@ export function MailAccountsHero(props: {
   warmedCount: number
   whatsappCount: number
   connectedWhatsappCount: number
-  activeRecipients: number
-  criticalDomains: number
-  riskyDomains: number
 }) {
   const tabs: { key: ActiveTab; label: string }[] = [
     { key: 'accounts', label: 'Accounts' },
-    { key: 'warmup', label: 'Warmup' },
     { key: 'add-zoho', label: 'Add Zoho' },
     { key: 'add-gmail', label: 'Add Gmail' },
     { key: 'add-whatsapp', label: 'Add WhatsApp' },
@@ -53,20 +51,20 @@ export function MailAccountsHero(props: {
           ...panelStyle,
           marginBottom: '20px',
           background:
-            'radial-gradient(circle at top left, rgba(99,102,241,0.24), transparent 36%), radial-gradient(circle at top right, rgba(34,211,165,0.14), transparent 30%), linear-gradient(180deg, rgba(20,20,31,0.98), rgba(11,11,18,0.98))',
+            'radial-gradient(circle at top left, rgba(214,170,102,0.2), transparent 34%), radial-gradient(circle at top right, rgba(31,37,45,0.08), transparent 28%), linear-gradient(180deg, rgba(255,255,255,0.96), rgba(251,248,242,0.92))',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
           <div style={{ maxWidth: '780px' }}>
             <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-muted)' }}>
-              Build Web Apps
+              Mail operations
             </div>
             <h1 style={{ fontSize: '34px', lineHeight: 1.1, fontWeight: 800, marginTop: '10px', color: 'var(--text-primary)' }}>
-              Mailbox operations, warmup, and deliverability in one workspace
+              Sender inventory and connection health, without the warmup clutter.
             </h1>
             <p style={{ marginTop: '12px', fontSize: '14px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-              The dashboard is now organized around operational status instead of dumping every control into one dense list.
-              Review sender health, unblock sync issues, and act on warmup mailboxes without hunting through the page.
+              This page now stays focused on connected mailboxes, WhatsApp channels, and operational fixes.
+              Warmup pacing, recipient pools, and stage tuning have moved into their own dedicated workspace.
             </p>
           </div>
           <div
@@ -75,31 +73,28 @@ export function MailAccountsHero(props: {
               alignSelf: 'stretch',
               padding: '16px',
               borderRadius: '18px',
-              border: '1px solid rgba(255,255,255,0.08)',
-              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(60, 45, 25, 0.08)',
+              background: 'rgba(255,255,255,0.72)',
             }}
           >
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               Operational focus
             </div>
             <div style={{ marginTop: '12px', fontSize: '14px', color: 'var(--text-primary)', fontWeight: 600 }}>
-              Keep campaign senders clean.
+              Keep sender connections clean.
             </div>
             <div style={{ marginTop: '8px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              Warmup sender health, sync recoverability, and domain safety are surfaced first so risky accounts stand out earlier.
+              Repair OAuth, sync inboxes, and manage active senders here. Domain diagnostics and warmup controls now live outside this surface.
             </div>
           </div>
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: '12px', marginBottom: '20px' }}>
-        <StatCard value={props.accountCount} label="Mail accounts" color="var(--accent)" />
+        <StatCard value={props.accountCount} label="Mail accounts" color="var(--text-primary)" />
         <StatCard value={props.warmedCount} label="Warmed mailboxes" color="var(--success)" />
         <StatCard value={props.whatsappCount} label="WhatsApp accounts" color="#22c55e" />
         <StatCard value={props.connectedWhatsappCount} label="Connected WhatsApp" color="#86efac" />
-        <StatCard value={props.activeRecipients} label="Active warmup recipients" color="var(--warning)" />
-        <StatCard value={props.criticalDomains} label="Critical domain issues" color="var(--error)" />
-        <StatCard value={props.riskyDomains} label="Domains at risk" color="var(--error)" />
       </div>
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
@@ -199,7 +194,13 @@ export function DomainPanels(props: {
 export function AccountsView(props: {
   loading: boolean
   accounts: MailAccount[]
+  accountsPagination: PaginatedResponse<MailAccount>
+  setAccountsPage: (page: number) => void
+  setAccountsLimit: (limit: number) => void
   whatsappAccounts: WhatsAppAccount[]
+  whatsappPagination: PaginatedResponse<WhatsAppAccount>
+  setWhatsAppPage: (page: number) => void
+  setWhatsAppLimit: (limit: number) => void
   pendingDailyLimits: Record<string, string>
   setPendingDailyLimits: React.Dispatch<React.SetStateAction<Record<string, string>>>
   handleWarmupStatusChange: (id: string, status: MailAccount['warmupStatus']) => void
@@ -218,7 +219,10 @@ export function AccountsView(props: {
   activeMailboxAccountId: string | null
   activeMailboxFolder: 'INBOX' | 'SPAM' | 'SENT'
   mailboxMessages: MailboxMessage[]
+  mailboxPagination: PaginatedResponse<MailboxMessage>
   mailboxLoading: boolean
+  handleMailboxPageChange: (page: number) => void
+  handleMailboxLimitChange: (limit: number) => void
   handleRunWarmupNow: (id: string) => void
   handleRunMailboxSyncNow: (id: string) => void
   handleToggleMailActive: (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => void
@@ -383,12 +387,38 @@ export function AccountsView(props: {
                         </div>
                       ))}
                     </div>
+                    {props.mailboxPagination.total > 0 ? (
+                      <div style={{ marginTop: '12px' }}>
+                        <PaginationControls
+                          page={props.mailboxPagination.page}
+                          pages={props.mailboxPagination.pages}
+                          total={props.mailboxPagination.total}
+                          limit={props.mailboxPagination.limit}
+                          onPageChange={props.handleMailboxPageChange}
+                          onLimitChange={props.handleMailboxLimitChange}
+                          label="messages"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
             ))}
           </div>
         )}
+        {props.accountsPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.accountsPagination.page}
+              pages={props.accountsPagination.pages}
+              total={props.accountsPagination.total}
+              limit={props.accountsPagination.limit}
+              onPageChange={props.setAccountsPage}
+              onLimitChange={props.setAccountsLimit}
+              label="mailboxes"
+            />
+          </div>
+        ) : null}
       </div>
 
       <div style={panelStyle}>
@@ -418,7 +448,14 @@ export function AccountsView(props: {
                       <div style={{ marginTop: '12px', padding: '12px', borderRadius: '14px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                         <div style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: 600 }}>QR pending for pairing</div>
                         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                          Open WhatsApp on your phone, go to Linked Devices, and scan the QR from the live session view.
+                          Open WhatsApp on your phone, go to Linked Devices, and scan the QR below.
+                        </div>
+                        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(wa.lastQr)}`}
+                            alt={`Pair ${wa.displayName}`}
+                            style={{ width: '220px', height: '220px', borderRadius: '16px', background: '#fff', padding: '10px' }}
+                          />
                         </div>
                       </div>
                     ) : null}
@@ -437,6 +474,19 @@ export function AccountsView(props: {
             ))}
           </div>
         )}
+        {props.whatsappPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.whatsappPagination.page}
+              pages={props.whatsappPagination.pages}
+              total={props.whatsappPagination.total}
+              limit={props.whatsappPagination.limit}
+              onPageChange={props.setWhatsAppPage}
+              onLimitChange={props.setWhatsAppLimit}
+              label="WhatsApp accounts"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -446,6 +496,9 @@ export function WarmupView(props: {
   warmupOverview: WarmupOverview | null
   loading: boolean
   warmupRecipients: WarmupRecipient[]
+  warmupRecipientsPagination: PaginatedResponse<WarmupRecipient>
+  setRecipientPage: (page: number) => void
+  setRecipientLimit: (limit: number) => void
   recipientForm: { email: string; name: string; isActive: boolean }
   setRecipientForm: React.Dispatch<React.SetStateAction<{ email: string; name: string; isActive: boolean }>>
   recipientSaving: boolean
@@ -456,6 +509,9 @@ export function WarmupView(props: {
   handleToggleWarmupRecipient: (id: string, current: boolean) => void
   handleDeleteWarmupRecipient: (id: string, email: string) => void
   warmupLogs: WarmupLog[]
+  warmupLogsPagination: PaginatedResponse<WarmupLog>
+  setWarmupLogPage: (page: number) => void
+  setWarmupLogLimit: (limit: number) => void
   recipientPoolHealthy: boolean
   activeMailboxPool: number
   activeCustomRecipients: number
@@ -520,6 +576,19 @@ export function WarmupView(props: {
             ))
           )}
         </div>
+        {props.warmupRecipientsPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.warmupRecipientsPagination.page}
+              pages={props.warmupRecipientsPagination.pages}
+              total={props.warmupRecipientsPagination.total}
+              limit={props.warmupRecipientsPagination.limit}
+              onPageChange={props.setRecipientPage}
+              onLimitChange={props.setRecipientLimit}
+              label="recipients"
+            />
+          </div>
+        ) : null}
       </div>
 
       <div style={panelStyle}>
@@ -552,6 +621,19 @@ export function WarmupView(props: {
             ))}
           </div>
         )}
+        {props.warmupLogsPagination.total > 0 ? (
+          <div style={{ marginTop: '14px' }}>
+            <PaginationControls
+              page={props.warmupLogsPagination.page}
+              pages={props.warmupLogsPagination.pages}
+              total={props.warmupLogsPagination.total}
+              limit={props.warmupLogsPagination.limit}
+              onPageChange={props.setWarmupLogPage}
+              onLimitChange={props.setWarmupLogLimit}
+              label="warmup logs"
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   )

@@ -7,7 +7,7 @@ import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { sendViaGmail, sendViaZoho } from '~/lib/mailSenders'
 import { generateWarmupMailWithGemini } from '~/lib/geminiWarmup'
 
-const REPLY_PROBABILITY = 0.35
+const REPLY_PROBABILITY = 0.65
 const GEMINI_WARMUP_PROBABILITY = 0.2
 const warmupDeps = {
   prisma,
@@ -31,6 +31,27 @@ function getFirstName(displayNameOrEmail: string) {
 
 function pickTemplate<T>(templates: T[], seed: number) {
   return templates[Math.abs(seed + Math.floor(Math.random() * 997)) % templates.length]
+}
+
+function pickLeastUsedCandidate<T>(options: {
+  candidates: T[]
+  getKey: (candidate: T) => string
+  countMap: Map<string, number>
+}) {
+  if (options.candidates.length === 0) return null
+
+  let lowestCount = Number.POSITIVE_INFINITY
+  for (const candidate of options.candidates) {
+    const count = options.countMap.get(options.getKey(candidate)) ?? 0
+    if (count < lowestCount) lowestCount = count
+  }
+
+  const leastUsed = options.candidates.filter(
+    (candidate) => (options.countMap.get(options.getKey(candidate)) ?? 0) === lowestCount
+  )
+  const totalInteractions = Array.from(options.countMap.values()).reduce((sum, count) => sum + count, 0)
+  const index = totalInteractions % leastUsed.length
+  return leastUsed[index] ?? leastUsed[0] ?? null
 }
 
 const OUTBOUND_TEMPLATES: WarmupMailTemplate[] = [
@@ -91,36 +112,49 @@ const REPLY_TEMPLATES: WarmupMailTemplate[] = [
 
 function buildWarmupMail(stage: number, senderName: string, recipientName: string) {
   const subjectVariants = [
-    'Quick intro',
-    'Following up briefly',
-    'A quick question',
-    'Shared context',
+    'Quick hello',
     'Checking in',
-    'Short note',
+    'Small note',
+    'Thought of this',
+    'Hope all is well',
+    'Short hello',
+    'Quick thought',
+    'Simple check-in',
+    'Friendly note',
+    'Hello there',
+    'Midweek hello',
+    'Keeping in touch',
   ]
-  const subject = pickTemplate(subjectVariants, stage)
+  const subject = pickTemplate(subjectVariants, stage + senderName.length)
   const openingVariants = [
     `Hi ${recipientName},`,
     `Hello ${recipientName},`,
+    `Hey ${recipientName},`,
     `Hi there,`,
   ]
   const opening = pickTemplate(openingVariants, stage + senderName.length)
   const middleVariants = [
-    'Hope your week is going well. I wanted to send a quick note and introduce myself.',
-    'Just a short note from my side. I wanted to keep the conversation open.',
-    'I had one quick question and thought I would reach out directly.',
-    "I've been reviewing a few related ideas and thought this might be relevant to you as well.",
-    "Checking in with a brief note. I'm keeping this short, but wanted to make sure my earlier message did not get buried.",
-    'Sharing a short note from my side. Happy to connect if you think there is a fit.',
+    'Hope your day is going smoothly. Sending a quick hello from my side.',
+    'Just checking in with a short note. No action needed, only keeping the thread warm.',
+    'Wanted to leave a small note here so we stay in touch naturally.',
+    'I was going through a few things today and thought of this conversation.',
+    'Hope the week has been fairly smooth on your side.',
+    'Keeping this brief, but I wanted to say hello while I had a moment.',
+    'A quick message from me while I was clearing a few replies.',
+    'Thought it was a nice time to send a light check-in.',
+    'Just a short, friendly note so the thread stays active.',
+    'Dropping a simple hello here before the day gets busy.',
   ]
-  const middle = pickTemplate(middleVariants, stage * 3)
+  const middle = pickTemplate(middleVariants, stage * 3 + recipientName.length)
   const closingVariants = [
-    `<p>If it's useful, I can share a bit more context on what we are working on.</p><p>Best,<br/>${senderName}</p>`,
-    `<p>No rush at all, I wanted to keep the conversation open.</p><p>Thanks,<br/>${senderName}</p>`,
-    `<p>Do you have a preferred contact for future conversations?</p><p>Regards,<br/>${senderName}</p>`,
-    `<p>If you're open to it, I can send over a short summary.</p><p>Best regards,<br/>${senderName}</p>`,
-    `<p>Wanted to keep this brief, but still useful.</p><p>Thanks again,<br/>${senderName}</p>`,
-    `<p>Happy to connect if you think there's a fit.</p><p>Best,<br/>${senderName}</p>`,
+    `<p>Hope the rest of the day goes well.</p><p>Best,<br/>${senderName}</p>`,
+    `<p>No rush on anything, just keeping in touch.</p><p>Thanks,<br/>${senderName}</p>`,
+    `<p>Always happy to keep the conversation open.</p><p>Regards,<br/>${senderName}</p>`,
+    `<p>Thought a light note here would be useful.</p><p>Best regards,<br/>${senderName}</p>`,
+    `<p>Wanted to keep this short and natural.</p><p>Thanks again,<br/>${senderName}</p>`,
+    `<p>Hope to stay connected here.</p><p>Best,<br/>${senderName}</p>`,
+    `<p>Wishing you a smooth week ahead.</p><p>Regards,<br/>${senderName}</p>`,
+    `<p>That was all from my side for now.</p><p>Best,<br/>${senderName}</p>`,
   ]
   const closing = pickTemplate(closingVariants, stage + recipientName.length)
   return {
@@ -151,22 +185,29 @@ async function buildOutboundWarmupMail(stage: number, senderName: string, recipi
 
 function buildReplyMail(senderDisplayName: string, recipientDisplayName: string) {
   const subjectVariants = [
-    'Re: Quick intro',
-    'Re: Following up',
-    'Re: A quick question',
-    'Re: Shared context',
+    'Re: Quick hello',
+    'Re: Checking in',
+    'Re: Small note',
+    'Re: Thought of this',
+    'Re: Hope all is well',
+    'Re: Friendly note',
   ]
   const subject = pickTemplate(subjectVariants, senderDisplayName.length + recipientDisplayName.length)
   const openingVariants = [
     `Hi ${recipientDisplayName},`,
     `Hello ${recipientDisplayName},`,
+    `Hey ${recipientDisplayName},`,
   ]
   const opening = pickTemplate(openingVariants, senderDisplayName.length)
   const middleVariants = [
-    'Thanks for reaching out. Appreciate the note and wanted to reply briefly to keep the thread moving.',
-    'Thanks for the follow-up. I have seen your message and wanted to send a quick acknowledgment.',
-    'Thanks for the quick question. Sending a short reply so the conversation stays active.',
-    'Appreciate the context you shared. Just replying to keep the exchange natural and active.',
+    'Thanks for the note. Replying quickly from my side.',
+    'Good to hear from you. Sending a short reply while I had a moment.',
+    'Appreciate the message. Just keeping the conversation moving naturally.',
+    'Saw this come in and wanted to acknowledge it.',
+    'Thanks for checking in. Sending a quick response here.',
+    'Appreciate you reaching out. Keeping this one short.',
+    'Wanted to reply before this slipped past me.',
+    'Thanks for the thoughtful note. Good to stay in touch.',
   ]
   const middle = pickTemplate(middleVariants, recipientDisplayName.length)
   return {
@@ -238,12 +279,12 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
       if (item.recipientMailAccountId) countMap.set(item.recipientMailAccountId, item._count._all)
     }
 
-    const sorted = [...eligibleSystemCandidates].sort((a, b) => {
-      const ac = countMap.get(a.id) ?? 0
-      const bc = countMap.get(b.id) ?? 0
-      return ac - bc
+    const chosen = pickLeastUsedCandidate({
+      candidates: eligibleSystemCandidates,
+      getKey: (candidate) => candidate.id,
+      countMap,
     })
-    const chosen = sorted[0]
+    if (!chosen) return null
     return {
       type: 'system' as const,
       email: chosen.email,
@@ -264,8 +305,12 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
     })
     const countMap = new Map<string, number>()
     for (const item of counts) countMap.set(item.recipientEmail, item._count._all)
-    const sorted = [...eligibleCustomRecipients].sort((a, b) => (countMap.get(a.email) ?? 0) - (countMap.get(b.email) ?? 0))
-    const chosen = sorted[0]
+    const chosen = pickLeastUsedCandidate({
+      candidates: eligibleCustomRecipients,
+      getKey: (candidate) => candidate.email,
+      countMap,
+    })
+    if (!chosen) return null
     return {
       type: 'external' as const,
       email: chosen.email,
@@ -302,12 +347,12 @@ async function chooseWarmupRecipient(senderAccountId: string, senderEmail: strin
       if (item.recipientMailAccountId) countMap.set(item.recipientMailAccountId, item._count._all)
     }
 
-    const sorted = [...eligibleFallbackCandidates].sort((a, b) => {
-      const ac = countMap.get(a.id) ?? 0
-      const bc = countMap.get(b.id) ?? 0
-      return ac - bc
+    const chosen = pickLeastUsedCandidate({
+      candidates: eligibleFallbackCandidates,
+      getKey: (candidate) => candidate.id,
+      countMap,
     })
-    const chosen = sorted[0]
+    if (!chosen) return null
     console.log(
       `[Warmup] Using fallback recipient ${chosen.email} for ${senderEmail} (status=${chosen.warmupStatus})`
     )

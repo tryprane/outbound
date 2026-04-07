@@ -26,7 +26,15 @@ function buildReplySubject(subject?: string | null) {
 }
 
 function buildReplyBody(senderName: string, recipientName: string) {
-  return `<p>Hi ${recipientName},</p><p>Thanks for the note. Sending a quick reply to keep the conversation active.</p><p>Best,<br/>${senderName}</p>`
+  const variants = [
+    `Thanks for the note. Sending a quick reply from my side.`,
+    `Good to hear from you. Keeping this reply short and natural.`,
+    `Appreciate the message. Just sending a quick acknowledgment.`,
+    `Saw your message and wanted to reply while I had a moment.`,
+    `Thanks for checking in. Sending a short response here.`,
+  ]
+  const variant = variants[Math.abs(senderName.length + recipientName.length) % variants.length]
+  return `<p>Hi ${recipientName},</p><p>${variant}</p><p>Best,<br/>${senderName}</p>`
 }
 
 function getFirstName(value?: string | null) {
@@ -34,8 +42,8 @@ function getFirstName(value?: string | null) {
   return fallback.split(/[._\s-]+/).filter(Boolean)[0] || 'there'
 }
 
-const DEFAULT_REPLY_PERCENT = 25
-const SPAM_RESCUE_REPLY_PERCENT = 55
+const DEFAULT_REPLY_PERCENT = 70
+const SPAM_RESCUE_REPLY_PERCENT = 90
 
 function shouldReply(messageId: string, boostedForSpamRescue = false) {
   const threshold = boostedForSpamRescue ? SPAM_RESCUE_REPLY_PERCENT : DEFAULT_REPLY_PERCENT
@@ -115,14 +123,14 @@ async function processMailboxInteractionJob(job: Job<MailboxInteractionJobData>)
 
     const boostedForSpamRescue = refreshed.isSpam || Boolean(refreshed.rescuedAt)
     if (!refreshed.repliedAt && shouldReply(refreshed.providerMessageId, boostedForSpamRescue)) {
-      await queueNextStage(refreshed.id, 'reply', randomDelayMs(20, 180))
+      await queueNextStage(refreshed.id, 'reply', randomDelayMs(8, 60))
     }
     return
   }
 
   if (stage !== 'reply' || refreshed.repliedAt) return
 
-  const counterpart = refreshed.fromEmail || refreshed.toEmail
+  const counterpart = (refreshed.fromEmail || refreshed.toEmail)?.trim().toLowerCase()
   if (!counterpart) return
 
   const warmupCounterpart = await prisma.warmupRecipient.findUnique({ where: { email: counterpart } })

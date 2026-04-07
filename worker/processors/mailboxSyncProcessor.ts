@@ -36,7 +36,7 @@ async function resolveThread(mailAccountId: string, message: MailboxMessageRecor
 }
 
 async function detectWarmup(mailAccountId: string, message: MailboxMessageRecord): Promise<boolean> {
-  const counterpart = message.direction === 'outbound' ? message.toEmail : message.fromEmail
+  const counterpart = (message.direction === 'outbound' ? message.toEmail : message.fromEmail)?.trim().toLowerCase()
   if (!counterpart) return false
 
   const [recipient, siblingMailbox] = await Promise.all([

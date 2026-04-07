@@ -22,6 +22,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "crypto-js": "^4.2.0",
+    "geist": "^1.7.0",
     "googleapis": "^171.4.0",
     "ioredis": "^5.4.1",
     "lucide-react": "^1.7.0",

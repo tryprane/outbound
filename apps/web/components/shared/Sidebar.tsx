@@ -1,179 +1,136 @@
 'use client'
 
 import Link from 'next/link'
+import { signOut, useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
+import {
+  Flame,
+  FolderKanban,
+  Home,
+  Inbox,
+  KeySquare,
+  Mail,
+  MessageSquareText,
+  Send,
+  Settings,
+} from 'lucide-react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Separator } from '@/components/ui/separator'
 
-const navItems = [
+const navGroups = [
   {
-    label: 'Dashboard',
-    href: '/',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="7" height="7"/>
-        <rect x="14" y="3" width="7" height="7"/>
-        <rect x="14" y="14" width="7" height="7"/>
-        <rect x="3" y="14" width="7" height="7"/>
-      </svg>
-    ),
+    label: 'Dashboards',
+    items: [{ label: 'Dashboard', href: '/', icon: Home }],
   },
   {
-    label: 'Campaigns',
-    href: '/campaigns',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-      </svg>
-    ),
+    label: 'Workspace',
+    items: [
+      { label: 'Campaigns', href: '/campaigns', icon: FolderKanban },
+      { label: 'CSV Files', href: '/csv', icon: MessageSquareText },
+    ],
   },
   {
-    label: 'CSV Files',
-    href: '/csv',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/>
-        <line x1="16" y1="13" x2="8" y2="13"/>
-        <line x1="16" y1="17" x2="8" y2="17"/>
-        <polyline points="10 9 9 9 8 9"/>
-      </svg>
-    ),
+    label: 'Channels',
+    items: [
+      { label: 'Mail Accounts', href: '/mail-accounts', icon: Mail },
+      { label: 'Email Warmup', href: '/warmup', icon: Flame },
+      { label: 'Inbox', href: '/inbox', icon: Inbox },
+      { label: 'Sent Mail', href: '/sent', icon: Send },
+    ],
   },
   {
-    label: 'Mail Accounts',
-    href: '/mail-accounts',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-        <polyline points="22,6 12,13 2,6"/>
-      </svg>
-    ),
-  },
-  {
-    label: 'API Management',
-    href: '/api-management',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M8 9h8"/>
-        <path d="M8 15h5"/>
-        <path d="M4 4h16v16H4z"/>
-      </svg>
-    ),
-  },
-  {
-    label: 'Sent Mail',
-    href: '/sent',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"/>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-      </svg>
-    ),
-  },
-  {
-    label: 'Inbox',
-    href: '/inbox',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M22 12h-4l-3 5H9l-3-5H2"/>
-        <path d="M5 12V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7"/>
-      </svg>
-    ),
-  },
-  {
-    label: 'Settings',
-    href: '/settings',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-      </svg>
-    ),
+    label: 'System',
+    items: [
+      { label: 'API Management', href: '/api-management', icon: KeySquare },
+      { label: 'Settings', href: '/settings', icon: Settings },
+    ],
   },
 ]
 
+function getInitials(name?: string | null, email?: string | null) {
+  const source = name?.trim() || email?.trim() || 'OO'
+  return source
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+}
+
 export function Sidebar() {
   const pathname = usePathname()
+  const { data: session } = useSession()
 
   return (
-    <aside style={{
-      width: '240px',
-      minHeight: '100vh',
-      background: 'var(--bg-secondary)',
-      borderRight: '1px solid var(--border)',
-      display: 'flex',
-      flexDirection: 'column',
-      padding: '24px 0',
-      flexShrink: 0,
-    }}>
-      {/* Logo */}
-      <div style={{ padding: '0 20px 28px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            background: 'var(--accent)',
-            borderRadius: '10px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '18px',
-          }}>⚡</div>
+    <aside className="page-shell sticky top-6 flex h-[calc(100vh-3rem)] w-[220px] shrink-0 flex-col rounded-[30px] border border-white/60 px-4 py-5 shadow-[0_26px_70px_rgba(60,45,25,0.08)]">
+      <div className="mb-6 px-2">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-[linear-gradient(135deg,#1f252d,#3e4856)] text-sm font-semibold text-white shadow-[0_16px_38px_rgba(31,37,45,0.18)]">
+            OS
+          </div>
           <div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
-              OutreachOS
-            </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-              Outbound Automation
-            </div>
+            <div className="text-sm font-semibold tracking-[-0.02em] text-[var(--text-primary)]">OutreachOS</div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-[var(--text-muted)]">Outbound suite</div>
           </div>
         </div>
       </div>
 
-      {/* Nav items */}
-      <nav style={{ flex: 1, padding: '0 12px' }}>
-        {navItems.map((item) => {
-          const isActive = item.href === '/'
-            ? pathname === '/'
-            : pathname.startsWith(item.href)
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                marginBottom: '4px',
-                textDecoration: 'none',
-                fontSize: '14px',
-                fontWeight: isActive ? 600 : 400,
-                color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                background: isActive ? 'var(--bg-hover)' : 'transparent',
-                borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
-                transition: 'all 0.15s',
-              }}
-            >
-              <span style={{ color: isActive ? 'var(--accent)' : 'inherit' }}>{item.icon}</span>
-              {item.label}
-            </Link>
-          )
-        })}
+      <nav className="flex-1 space-y-5 overflow-y-auto pr-1">
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            <div className="px-3 text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">
+              {group.label}
+            </div>
+            <div className="mt-2 space-y-1">
+              {group.items.map((item) => {
+                const isActive =
+                  item.href === '/' ? pathname === '/' : pathname.startsWith(item.href)
+                const Icon = item.icon
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={[
+                      'flex items-center gap-3 rounded-full px-3 py-2.5 text-sm transition',
+                      isActive
+                        ? 'bg-[var(--text-primary)] text-white shadow-[0_18px_34px_rgba(31,37,45,0.18)]'
+                        : 'text-[var(--text-secondary)] hover:bg-white/70 hover:text-[var(--text-primary)]',
+                    ].join(' ')}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="font-medium">{item.label}</span>
+                  </Link>
+                )
+              })}
+            </div>
+            <Separator className="mt-5 bg-black/6" />
+          </div>
+        ))}
       </nav>
 
-      {/* Footer */}
-      <div style={{
-        padding: '16px 20px 0',
-        borderTop: '1px solid var(--border)',
-        margin: '0 12px',
-      }}>
-        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-          OutreachOS v1.0.0
+      <div className="mt-5 rounded-[24px] border border-black/8 bg-white/80 p-3">
+        <div className="flex items-center gap-3">
+          <Avatar className="h-11 w-11 border-black/10">
+            <AvatarImage src={session?.user?.image ?? ''} alt={session?.user?.name ?? 'User'} />
+            <AvatarFallback>{getInitials(session?.user?.name, session?.user?.email)}</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-[var(--text-primary)]">
+              {session?.user?.name || 'Outreach Admin'}
+            </div>
+            <div className="truncate text-xs text-[var(--text-muted)]">
+              {session?.user?.email || 'Internal workspace'}
+            </div>
+          </div>
         </div>
-        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-          Internal Agency Tool
-        </div>
+        <button
+          type="button"
+          className="btn-ghost mt-3 w-full justify-center"
+          onClick={() => signOut({ callbackUrl: '/login' })}
+        >
+          Log out
+        </button>
       </div>
     </aside>
   )

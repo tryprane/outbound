@@ -6,9 +6,7 @@ import {
   AddGmailView,
   AddWhatsappView,
   AddZohoView,
-  DomainPanels,
   MailAccountsHero,
-  WarmupView,
 } from '@/components/mail-accounts/MailAccountsSections'
 import { useMailAccountsDashboard } from '@/components/mail-accounts/useMailAccountsDashboard'
 
@@ -44,22 +42,19 @@ function MailAccountsPageContent() {
         warmedCount={dashboard.warmedAccounts.length}
         whatsappCount={dashboard.whatsappAccounts.length}
         connectedWhatsappCount={dashboard.connectedWhatsapp.length}
-        activeRecipients={dashboard.warmupRecipients.filter((r) => r.isActive).length}
-        criticalDomains={dashboard.criticalDomains.length}
-        riskyDomains={dashboard.domainsAtRisk.length}
-      />
-
-      <DomainPanels
-        domainHealth={dashboard.domainHealth}
-        domainHealthHistory={dashboard.domainHealthHistory}
-        domainDiagnostics={dashboard.domainDiagnostics}
       />
 
       {dashboard.activeTab === 'accounts' ? (
         <AccountsView
           loading={dashboard.loading}
           accounts={dashboard.accounts}
+          accountsPagination={dashboard.accountsPagination}
+          setAccountsPage={dashboard.setAccountsPage}
+          setAccountsLimit={dashboard.setAccountsLimit}
           whatsappAccounts={dashboard.whatsappAccounts}
+          whatsappPagination={dashboard.whatsappPagination}
+          setWhatsAppPage={dashboard.setWhatsAppPage}
+          setWhatsAppLimit={dashboard.setWhatsAppLimit}
           pendingDailyLimits={dashboard.pendingDailyLimits}
           setPendingDailyLimits={dashboard.setPendingDailyLimits}
           handleWarmupStatusChange={dashboard.handleWarmupStatusChange}
@@ -74,7 +69,10 @@ function MailAccountsPageContent() {
           activeMailboxAccountId={dashboard.activeMailboxAccountId}
           activeMailboxFolder={dashboard.activeMailboxFolder}
           mailboxMessages={dashboard.mailboxMessages}
+          mailboxPagination={dashboard.mailboxPagination}
           mailboxLoading={dashboard.mailboxLoading}
+          handleMailboxPageChange={dashboard.handleMailboxPageChange}
+          handleMailboxLimitChange={dashboard.handleMailboxLimitChange}
           handleRunWarmupNow={dashboard.handleRunWarmupNow}
           handleRunMailboxSyncNow={dashboard.handleRunMailboxSyncNow}
           handleToggleMailActive={dashboard.handleToggleMailActive}
@@ -83,27 +81,6 @@ function MailAccountsPageContent() {
           handleUpdateWhatsappLimit={dashboard.handleUpdateWhatsappLimit}
           handleReconnectWhatsapp={dashboard.handleReconnectWhatsapp}
           handleDeleteWhatsapp={dashboard.handleDeleteWhatsapp}
-        />
-      ) : null}
-
-      {dashboard.activeTab === 'warmup' ? (
-        <WarmupView
-          warmupOverview={dashboard.warmupOverview}
-          loading={dashboard.loading}
-          warmupRecipients={dashboard.warmupRecipients}
-          recipientForm={dashboard.recipientForm}
-          setRecipientForm={dashboard.setRecipientForm}
-          recipientSaving={dashboard.recipientSaving}
-          bulkRecipients={dashboard.bulkRecipients}
-          setBulkRecipients={dashboard.setBulkRecipients}
-          handleCreateWarmupRecipient={dashboard.handleCreateWarmupRecipient}
-          handleBulkWarmupRecipients={dashboard.handleBulkWarmupRecipients}
-          handleToggleWarmupRecipient={dashboard.handleToggleWarmupRecipient}
-          handleDeleteWarmupRecipient={dashboard.handleDeleteWarmupRecipient}
-          warmupLogs={dashboard.warmupLogs}
-          recipientPoolHealthy={dashboard.recipientPoolHealthy}
-          activeMailboxPool={dashboard.activeMailboxPool}
-          activeCustomRecipients={dashboard.activeCustomRecipients}
         />
       ) : null}
 

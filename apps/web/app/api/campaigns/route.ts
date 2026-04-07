@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { buildPaginatedResult, parsePaginationParams } from '@/lib/pagination'
 import { z } from 'zod'
 import { evaluateMailAccountGuardrail } from '@/lib/campaignGuardrails'
 import { getDomainDiagnostics, getDomainDiagnosticsBlockers } from '@/lib/domainDiagnostics'
@@ -22,33 +23,40 @@ const CreateCampaignSchema = z.object({
 export async function GET(request: NextRequest) {
   try {
     const status = request.nextUrl.searchParams.get('status')
+    const pagination = parsePaginationParams(request, { defaultLimit: 12, maxLimit: 100 })
+    const where = status ? { status } : undefined
 
-    const campaigns = await prisma.campaign.findMany({
-      where: status ? { status } : undefined,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        csvFile: {
-          select: { id: true, originalName: true, rowCount: true },
-        },
-        mailAccounts: {
-          include: {
-            mailAccount: {
-              select: { id: true, email: true, type: true, displayName: true },
+    const [items, total] = await Promise.all([
+      prisma.campaign.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: pagination.skip,
+        take: pagination.limit,
+        include: {
+          csvFile: {
+            select: { id: true, originalName: true, rowCount: true },
+          },
+          mailAccounts: {
+            include: {
+              mailAccount: {
+                select: { id: true, email: true, type: true, displayName: true },
+              },
             },
           },
-        },
-        whatsappAccounts: {
-          include: {
-            whatsappAccount: {
-              select: { id: true, displayName: true, phoneNumber: true, isActive: true },
+          whatsappAccounts: {
+            include: {
+              whatsappAccount: {
+                select: { id: true, displayName: true, phoneNumber: true, isActive: true },
+              },
             },
           },
+          _count: { select: { sentMails: true, sentWhatsAppMessages: true } },
         },
-        _count: { select: { sentMails: true, sentWhatsAppMessages: true } },
-      },
-    })
+      }),
+      prisma.campaign.count({ where }),
+    ])
 
-    return NextResponse.json(campaigns)
+    return NextResponse.json(buildPaginatedResult(items, total, pagination))
   } catch (error) {
     console.error('[Campaigns GET]', error)
     return NextResponse.json({ error: 'Failed to fetch campaigns' }, { status: 500 })
