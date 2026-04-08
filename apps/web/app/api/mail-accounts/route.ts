@@ -296,7 +296,7 @@ export async function GET(request: NextRequest) {
       const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
       const senderId = request.nextUrl.searchParams.get('senderId')
       const where = senderId ? { senderMailAccountId: senderId } : undefined
-      const [items, total] = await Promise.all([
+      const [rawItems, total] = await Promise.all([
         prisma.warmupMailLog.findMany({
           where,
           orderBy: { sentAt: 'desc' },
@@ -320,6 +320,13 @@ export async function GET(request: NextRequest) {
         }),
         prisma.warmupMailLog.count({ where }),
       ])
+      const items = rawItems.map((item) => ({
+        ...item,
+        senderEmail: item.senderMailAccount.email,
+        senderDisplayName: item.senderMailAccount.displayName,
+        recipientDisplayEmail: item.recipientMailAccount?.email ?? item.recipientEmail,
+        recipientDisplayName: item.recipientMailAccount?.displayName ?? null,
+      }))
       return NextResponse.json(buildPaginatedResult(items, total, pagination))
     }
     if (resource === 'mailbox-health') {

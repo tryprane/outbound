@@ -28,6 +28,34 @@ export function WarmupWorkspace() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [isPending, startTransition] = useTransition()
 
+  const persistSettings = (nextSettings: WarmupSettingsResponse, successText = 'Warmup settings saved.') => {
+    setMessage(null)
+    startTransition(async () => {
+      try {
+        const response = await fetch('/api/warmup-settings', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(nextSettings),
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to save')
+        }
+
+        const data = (await response.json()) as WarmupSettingsResponse
+        setSettings({
+          globalEnabled: data.globalEnabled,
+          stageCounts: data.stageCounts?.length ? data.stageCounts : FALLBACK_STAGE_COUNTS,
+        })
+        setMessage({ type: 'success', text: successText })
+      } catch {
+        setMessage({ type: 'error', text: 'Unable to save warmup settings.' })
+      }
+    })
+  }
+
   useEffect(() => {
     let isMounted = true
 
@@ -78,31 +106,6 @@ export function WarmupWorkspace() {
     dashboard.warmupRecipients.length,
   ])
 
-  const saveSettings = () => {
-    setMessage(null)
-    startTransition(async () => {
-      try {
-        const response = await fetch('/api/warmup-settings', {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(settings),
-        })
-
-        if (!response.ok) {
-          throw new Error('Failed to save')
-        }
-
-        const data = (await response.json()) as WarmupSettingsResponse
-        setSettings(data)
-        setMessage({ type: 'success', text: 'Warmup settings saved.' })
-      } catch {
-        setMessage({ type: 'error', text: 'Unable to save warmup settings.' })
-      }
-    })
-  }
-
   return (
     <div className="animate-fade-in space-y-6">
       <section className="page-shell overflow-hidden rounded-[34px] border border-white/70 px-8 py-8 shadow-[0_28px_80px_rgba(60,45,25,0.08)]">
@@ -136,7 +139,7 @@ export function WarmupWorkspace() {
                 </div>
               </div>
               <p className="mt-4 text-sm leading-6 text-white/68">
-                Disabling the global switch prevents the worker from picking up new warmup jobs while keeping account data intact.
+                Disabling the global switch now saves immediately and blocks queued warmup jobs before they send.
               </p>
             </CardContent>
           </Card>
@@ -166,9 +169,14 @@ export function WarmupWorkspace() {
             </div>
             <Switch
               checked={settings.globalEnabled}
-              onCheckedChange={(checked) =>
-                setSettings((current) => ({ ...current, globalEnabled: checked }))
-              }
+              onCheckedChange={(checked) => {
+                const nextSettings = { ...settings, globalEnabled: checked }
+                setSettings(nextSettings)
+                persistSettings(
+                  nextSettings,
+                  checked ? 'Global warmup resumed.' : 'Global warmup paused. Queued jobs will now be skipped.'
+                )
+              }}
             />
           </CardHeader>
           <CardContent className="space-y-6 p-8 pt-2">
@@ -214,7 +222,7 @@ export function WarmupWorkspace() {
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button className="rounded-full px-6" onClick={saveSettings} disabled={isPending}>
+              <Button className="rounded-full px-6" onClick={() => persistSettings(settings)} disabled={isPending}>
                 {isPending ? 'Saving...' : 'Save warmup settings'}
                 <Save className="h-4 w-4" />
               </Button>
@@ -444,7 +452,10 @@ export function WarmupWorkspace() {
                   </Badge>
                 </div>
                 <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                  From {log.senderMailAccount.displayName} to {log.recipientMailAccount?.displayName || log.recipientEmail}
+                  From {log.senderDisplayName || log.senderEmail} ({log.senderEmail})
+                </div>
+                <div className="text-sm leading-6 text-[var(--text-secondary)]">
+                  To {log.recipientDisplayName || log.recipientDisplayEmail} ({log.recipientDisplayEmail})
                 </div>
                 <div className="mt-2 text-xs uppercase tracking-[0.16em] text-[var(--text-muted)]">
                   Stage {log.stage + 1} • {new Date(log.sentAt).toLocaleString()}

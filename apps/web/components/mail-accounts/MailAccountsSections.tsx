@@ -605,7 +605,10 @@ export function WarmupView(props: {
                       {log.direction === 'reply' ? 'Reply' : 'Outbound'} • {log.status.toUpperCase()}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      From {log.senderMailAccount.displayName} to {log.recipientMailAccount?.displayName || log.recipientEmail}
+                      From {log.senderDisplayName || log.senderEmail} ({log.senderEmail})
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      To {log.recipientDisplayName || log.recipientDisplayEmail} ({log.recipientDisplayEmail})
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                       Stage {log.stage} • {new Date(log.sentAt).toLocaleString()}

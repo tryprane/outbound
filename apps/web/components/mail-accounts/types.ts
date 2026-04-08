@@ -133,7 +133,11 @@ export interface WarmupOverview {
 export interface WarmupLog {
   id: string
   senderMailAccountId: string
+  senderEmail: string
+  senderDisplayName: string | null
   recipientEmail: string
+  recipientDisplayEmail: string
+  recipientDisplayName: string | null
   recipientType: 'system' | 'external'
   recipientMailAccountId: string | null
   direction: 'outbound' | 'reply'
