@@ -6,6 +6,11 @@ import { WarmupJobData } from '~/queues/warmupQueue'
 import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { sendViaGmail, sendViaZoho } from '~/lib/mailSenders'
 import { generateWarmupMailWithGemini } from '~/lib/geminiWarmup'
+import {
+  DEFAULT_WARMUP_SETTINGS,
+  WARMUP_SETTINGS_KEY,
+  parseWarmupSettingsValue,
+} from '~/lib/warmupSettings'
 
 const REPLY_PROBABILITY = 0.65
 const GEMINI_WARMUP_PROBABILITY = 0.2
@@ -375,8 +380,22 @@ async function sendFromAccount(mailAccountId: string, toEmail: string, subject: 
   throw new Error(`Unsupported sender type: ${account.type}`)
 }
 
+async function loadWarmupSettings() {
+  const record = await warmupDeps.prisma.systemSetting.findUnique({
+    where: { key: WARMUP_SETTINGS_KEY },
+  })
+
+  return parseWarmupSettingsValue(record?.value) ?? DEFAULT_WARMUP_SETTINGS
+}
+
 async function processWarmupJob(job: Job<WarmupJobData>) {
   const { mailAccountId } = job.data
+  const settings = await loadWarmupSettings()
+  if (!settings.globalEnabled) {
+    console.log(`[Warmup] Skipping ${mailAccountId}: global warmup is OFF`)
+    return
+  }
+
   const sender = await warmupDeps.prisma.mailAccount.findUnique({ where: { id: mailAccountId } })
   if (!sender) return
   if (!sender.warmupAutoEnabled) {
@@ -471,7 +490,12 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
 
   if (recipient.type === 'system' && recipient.recipientMailAccountId && warmupDeps.random() < REPLY_PROBABILITY) {
     const replier = await warmupDeps.prisma.mailAccount.findUnique({ where: { id: recipient.recipientMailAccountId } })
-    if (replier && replier.warmupStatus !== 'COLD') {
+    if (
+      replier &&
+      replier.warmupAutoEnabled &&
+      replier.warmupStatus !== 'COLD' &&
+      replier.warmupStatus !== 'PAUSED'
+    ) {
       const reply = buildReplyMail(sender.displayName, replier.displayName)
       try {
         await sendFromAccount(replier.id, sender.email, reply.subject, reply.body)
