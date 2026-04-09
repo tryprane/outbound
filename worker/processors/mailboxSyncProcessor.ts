@@ -3,7 +3,6 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '~/lib/prisma'
 import { getMailboxProvider } from '~/lib/mailboxProviders'
 import { isGmailMailboxPermissionError } from '~/lib/mailboxProviders/gmailMailboxProvider'
-import { isZohoImapDisabledError } from '~/lib/mailboxProviders/zohoMailboxProvider'
 import { isZohoApiAuthError } from '~/lib/zohoMailApi'
 import type { MailboxMessageRecord } from '~/lib/mailboxProviders/types'
 import { getRedisConnection } from '~/lib/redis'
@@ -11,7 +10,10 @@ import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { mailboxInteractionQueue } from '~/queues/mailboxInteractionQueue'
 import type { MailboxSyncJobData } from '~/queues/mailboxSyncQueue'
 
-const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox'
+const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox' // legacy — kept so old DB error strings still resolve
+const GMAIL_PERMISSION_SKIP_MESSAGE = 'Reconnect Gmail account to grant mailbox sync permissions'
+const ZOHO_AUTH_SKIP_MESSAGE = 'Reconnect Zoho account to restore mailbox API access'
+const ZOHO_AUTH_RETRY_AFTER_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 async function resolveThread(mailAccountId: string, message: MailboxMessageRecord) {
   const providerThreadId = message.providerThreadId || message.messageIdHeader || message.providerMessageId
@@ -138,15 +140,27 @@ function deriveWarmupAutomation(account: {
   }
 }
 
-export function shouldSkipMailboxSync(account: { type: string; mailboxSyncError: string | null }) {
-  return (
-    (account.type === 'gmail' && account.mailboxSyncError === 'Reconnect Gmail account to grant mailbox sync permissions') ||
-    (account.type === 'zoho' && (
-      account.mailboxSyncError === 'Enable IMAP for this Zoho mailbox, then retry mailbox sync' ||
-      account.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE ||
-      account.mailboxSyncError === 'Reconnect Zoho account to restore mailbox API access'
-    ))
-  )
+export function shouldSkipMailboxSync(account: {
+  type: string
+  mailboxSyncError: string | null
+  mailboxLastSyncedAt?: Date | null
+}) {
+  // Gmail: permanent skip — user must reconnect OAuth
+  if (account.type === 'gmail' && account.mailboxSyncError === GMAIL_PERMISSION_SKIP_MESSAGE) {
+    return true
+  }
+  // Zoho: skip on auth error but allow retry after back-off window
+  // so when the user reconnects we eventually pick it back up automatically
+  if (
+    account.type === 'zoho' &&
+    (account.mailboxSyncError === ZOHO_AUTH_SKIP_MESSAGE ||
+      account.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE)
+  ) {
+    const lastSync = account.mailboxLastSyncedAt
+    if (!lastSync) return true
+    return Date.now() - lastSync.getTime() < ZOHO_AUTH_RETRY_AFTER_MS
+  }
+  return false
 }
 
 async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
@@ -309,15 +323,13 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
     const message = error instanceof Error ? error.message : String(error)
     const nextMessage =
       account.type === 'gmail' && isGmailMailboxPermissionError(error)
-        ? 'Reconnect Gmail account to grant mailbox sync permissions'
-        : account.type === 'zoho' && isZohoImapDisabledError(error)
-          ? 'Enable IMAP for this Zoho mailbox, then retry mailbox sync'
-          : account.type === 'zoho' && isZohoApiAuthError(error)
-            ? 'Reconnect Zoho account to restore mailbox API access'
+        ? GMAIL_PERMISSION_SKIP_MESSAGE
+        : account.type === 'zoho' && isZohoApiAuthError(error)
+          ? ZOHO_AUTH_SKIP_MESSAGE
           : message
     const shouldDowngradeToIdle =
       (account.type === 'gmail' && isGmailMailboxPermissionError(error)) ||
-      (account.type === 'zoho' && (isZohoImapDisabledError(error) || isZohoApiAuthError(error)))
+      (account.type === 'zoho' && isZohoApiAuthError(error))
     await prisma.mailAccount.update({
       where: { id: account.id },
       data: {

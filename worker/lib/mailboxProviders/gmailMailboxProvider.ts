@@ -43,7 +43,7 @@ async function createGmailClient(account: MailAccount) {
     redirectUri
   )
 
-  const isExpired = account.tokenExpiry && account.tokenExpiry < new Date()
+  const isExpired = !account.tokenExpiry || account.tokenExpiry < new Date()
   if (isExpired) {
     client.setCredentials({ refresh_token: account.refreshToken })
     const { credentials } = await client.refreshAccessToken()

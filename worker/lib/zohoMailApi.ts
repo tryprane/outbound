@@ -238,7 +238,7 @@ export async function getZohoFolders(account: MailAccount) {
 
 export async function listZohoMessages(
   account: MailAccount,
-  options: { folderId: string; start?: number; limit?: number; includesent?: boolean } 
+  options: { folderId: string; start?: number; limit?: number; includesent?: boolean; receivedAfter?: number }
 ) {
   const search = new URLSearchParams({
     folderId: options.folderId,
@@ -250,7 +250,30 @@ export async function listZohoMessages(
     includesent: String(Boolean(options.includesent)),
     threadedMails: 'true',
   })
-  return zohoApiRequest<ZohoMessagePayload[]>(account, `/accounts/${account.zohoAccountId}/messages/view?${search.toString()}`)
+
+  const raw = await zohoApiRequest<ZohoMessagePayload[]>(
+    account,
+    `/accounts/${account.zohoAccountId}/messages/view?${search.toString()}`
+  )
+
+  // Client-side date filter: messages are sorted newest-first so we can stop early
+  if (options.receivedAfter) {
+    const cutoff = options.receivedAfter
+    const filtered: ZohoMessagePayload[] = []
+    for (const msg of raw) {
+      const ts = Number(msg.receivedTime ?? msg.sentDateInGMT ?? 0)
+      // ts === 0 means unknown date — include it rather than silently drop
+      if (ts === 0 || ts >= cutoff) {
+        filtered.push(msg)
+      } else {
+        // Once we see a message older than the cutoff (sorted desc) we can stop
+        break
+      }
+    }
+    return filtered
+  }
+
+  return raw
 }
 
 export async function markZohoMessagesAsRead(account: MailAccount, messageIds: string[]) {

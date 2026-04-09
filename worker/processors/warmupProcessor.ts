@@ -12,7 +12,6 @@ import {
   parseWarmupSettingsValue,
 } from '~/lib/warmupSettings'
 
-const REPLY_PROBABILITY = 0.65
 const GEMINI_WARMUP_PROBABILITY = 0.2
 const warmupDeps = {
   prisma,
@@ -59,62 +58,6 @@ function pickLeastUsedCandidate<T>(options: {
   return leastUsed[index] ?? leastUsed[0] ?? null
 }
 
-const OUTBOUND_TEMPLATES: WarmupMailTemplate[] = [
-  {
-    subject: 'Quick intro',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>Hope your week is going well. I wanted to send a quick note and introduce myself.</p><p>If it’s useful, I can share a bit more context on what we are working on.</p><p>Best,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'Following up briefly',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>Just following up on a short note from my side. No rush at all, I wanted to keep the conversation open.</p><p>Thanks,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'A quick question',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>I had one quick question and thought I’d reach out directly. Do you have a preferred contact for future conversations?</p><p>Regards,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'Shared context',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hello ${recipientName},</p><p>I’ve been reviewing a few related ideas and thought this might be relevant to you as well.</p><p>If you’re open to it, I can send over a short summary.</p><p>Best regards,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'Checking in',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>Checking in with a brief note. I’m keeping this short, but wanted to make sure my earlier message did not get buried.</p><p>Thanks again,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'Short note',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>Sharing a short note from my side. Happy to connect if you think there’s a fit.</p><p>Best,<br/>${senderName}</p>`,
-  },
-]
-
-const REPLY_TEMPLATES: WarmupMailTemplate[] = [
-  {
-    subject: 'Re: Quick intro',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>Thanks for reaching out. Appreciate the note and wanted to reply briefly to keep the thread moving.</p><p>Best,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'Re: Following up',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>Thanks for the follow-up. I’ve seen your message and wanted to send a quick acknowledgment.</p><p>Regards,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'Re: A quick question',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hello ${recipientName},</p><p>Thanks for the quick question. Sending a short reply so the conversation stays active.</p><p>Best,<br/>${senderName}</p>`,
-  },
-  {
-    subject: 'Re: Shared context',
-    body: ({ senderName, recipientName }) =>
-      `<p>Hi ${recipientName},</p><p>Appreciate the context you shared. Just replying to keep the exchange natural and active.</p><p>Best regards,<br/>${senderName}</p>`,
-  },
-]
-
 function buildWarmupMail(stage: number, senderName: string, recipientName: string) {
   const subjectVariants = [
     'Quick hello',
@@ -129,6 +72,34 @@ function buildWarmupMail(stage: number, senderName: string, recipientName: strin
     'Hello there',
     'Midweek hello',
     'Keeping in touch',
+    'Just saying hi',
+    'Brief note from me',
+    'Dropping a line',
+    'Thinking of you',
+    'Catching up',
+    'A small update',
+    'Passing along a hello',
+    'Quick ping',
+    'Reaching out briefly',
+    'Just a moment',
+    'Before the week ends',
+    'Morning hello',
+    'End of week note',
+    'Light touch base',
+    'A short word',
+    'Staying connected',
+    'Warm hello',
+    'Little note from me',
+    'While I had a second',
+    'Keeping the thread warm',
+    'Short and simple',
+    'A brief word',
+    'Gentle reminder I exist',
+    'Saying hello while here',
+    'Between meetings hello',
+    'A note from my desk',
+    'Sharing a quick hello',
+    'Before the day runs away',
   ]
   const subject = pickTemplate(subjectVariants, stage + senderName.length)
   const openingVariants = [
@@ -136,6 +107,17 @@ function buildWarmupMail(stage: number, senderName: string, recipientName: strin
     `Hello ${recipientName},`,
     `Hey ${recipientName},`,
     `Hi there,`,
+    `Good day ${recipientName},`,
+    `Hello there,`,
+    `Hope you're well,`,
+    `Hi ${recipientName} —`,
+    `Hey there,`,
+    `Hi, ${recipientName}`,
+    `Hello, ${recipientName}`,
+    `Greetings ${recipientName},`,
+    `Good morning ${recipientName},`,
+    `Good afternoon ${recipientName},`,
+    `Howdy ${recipientName},`,
   ]
   const opening = pickTemplate(openingVariants, stage + senderName.length)
   const middleVariants = [
@@ -149,6 +131,36 @@ function buildWarmupMail(stage: number, senderName: string, recipientName: strin
     'Thought it was a nice time to send a light check-in.',
     'Just a short, friendly note so the thread stays active.',
     'Dropping a simple hello here before the day gets busy.',
+    'Wanted to stay in touch and thought a small note would do.',
+    'I find it easier to keep threads warm with a quick message now and then.',
+    'Nothing urgent here — just keeping the line open.',
+    'Thought I would drop a light message before another week slips by.',
+    'Hope things are ticking along well on your end.',
+    'Short note from me while I had a quiet moment here.',
+    'Just a friendly ping to stay connected.',
+    'Sending this while I had a chance between tasks.',
+    'Wanted to reach out briefly while I was clearing my inbox.',
+    'Hope the month has been off to a solid start for you.',
+    'Sharing a small hello while I have the moment.',
+    'No need to reply, just staying in touch.',
+    'A light check-in from my end — hope things are good.',
+    'Dropping a warm note before the week wraps up.',
+    'Thought of this thread and wanted to send a quick word.',
+    'Nothing specific to flag — just a friendly nudge.',
+    "Hope you had a restful weekend. Sending a quick note to keep things warm.",
+    'Just touching base lightly — hope all is going well.',
+    'A short message from me to keep the channel warm.',
+    'I try to keep up with conversations I care about. Sending this your way.',
+    "Making sure this thread doesn't go cold — a hello from my side.",
+    'Thought a brief message here would be a nice gesture.',
+    'Keeping things casual — just wanted to say hello.',
+    "A small reminder that I'm here and open for a chat.",
+    'Sending a light note while I think of it.',
+    "This is just a friendly way of staying on your radar.",
+    "Quick hello before the day takes over — hope yours is going well.",
+    'Checking in the way one does when they want to stay connected.',
+    'A warm note from me — no urgency, just presence.',
+    'Sending this while the thought is fresh — hope all is well with you.',
   ]
   const middle = pickTemplate(middleVariants, stage * 3 + recipientName.length)
   const closingVariants = [
@@ -160,6 +172,18 @@ function buildWarmupMail(stage: number, senderName: string, recipientName: strin
     `<p>Hope to stay connected here.</p><p>Best,<br/>${senderName}</p>`,
     `<p>Wishing you a smooth week ahead.</p><p>Regards,<br/>${senderName}</p>`,
     `<p>That was all from my side for now.</p><p>Best,<br/>${senderName}</p>`,
+    `<p>Have a great rest of the week.</p><p>Warm regards,<br/>${senderName}</p>`,
+    `<p>Take care and stay well.</p><p>Best,<br/>${senderName}</p>`,
+    `<p>Feel free to reach out anytime.</p><p>Cheers,<br/>${senderName}</p>`,
+    `<p>Hope to hear from you soon.</p><p>All the best,<br/>${senderName}</p>`,
+    `<p>Looking forward to staying in touch.</p><p>Best,<br/>${senderName}</p>`,
+    `<p>Have a wonderful day ahead.</p><p>Kind regards,<br/>${senderName}</p>`,
+    `<p>Keep up the great work on your end.</p><p>Regards,<br/>${senderName}</p>`,
+    `<p>Wishing you a productive day.</p><p>Best,<br/>${senderName}</p>`,
+    `<p>Hope this week brings good things your way.</p><p>Warmly,<br/>${senderName}</p>`,
+    `<p>Stay well and take good care.</p><p>Best regards,<br/>${senderName}</p>`,
+    `<p>All the best for the days ahead.</p><p>Sincerely,<br/>${senderName}</p>`,
+    `<p>Hope things continue going smoothly for you.</p><p>Best,<br/>${senderName}</p>`,
   ]
   const closing = pickTemplate(closingVariants, stage + recipientName.length)
   return {
@@ -188,38 +212,6 @@ async function buildOutboundWarmupMail(stage: number, senderName: string, recipi
   return geminiMail
 }
 
-function buildReplyMail(senderDisplayName: string, recipientDisplayName: string) {
-  const subjectVariants = [
-    'Re: Quick hello',
-    'Re: Checking in',
-    'Re: Small note',
-    'Re: Thought of this',
-    'Re: Hope all is well',
-    'Re: Friendly note',
-  ]
-  const subject = pickTemplate(subjectVariants, senderDisplayName.length + recipientDisplayName.length)
-  const openingVariants = [
-    `Hi ${recipientDisplayName},`,
-    `Hello ${recipientDisplayName},`,
-    `Hey ${recipientDisplayName},`,
-  ]
-  const opening = pickTemplate(openingVariants, senderDisplayName.length)
-  const middleVariants = [
-    'Thanks for the note. Replying quickly from my side.',
-    'Good to hear from you. Sending a short reply while I had a moment.',
-    'Appreciate the message. Just keeping the conversation moving naturally.',
-    'Saw this come in and wanted to acknowledge it.',
-    'Thanks for checking in. Sending a quick response here.',
-    'Appreciate you reaching out. Keeping this one short.',
-    'Wanted to reply before this slipped past me.',
-    'Thanks for the thoughtful note. Good to stay in touch.',
-  ]
-  const middle = pickTemplate(middleVariants, recipientDisplayName.length)
-  return {
-    subject,
-    body: `<p>${opening}</p><p>${middle}</p><p>Best,<br/>${senderDisplayName}</p>`,
-  }
-}
 
 function classifyWarmupFailure(error: unknown): 'failed' | 'bounced' {
   const message = String(error instanceof Error ? error.message : error).toLowerCase()
@@ -488,59 +480,6 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
     return
   }
 
-  if (recipient.type === 'system' && recipient.recipientMailAccountId && warmupDeps.random() < REPLY_PROBABILITY) {
-    const replier = await warmupDeps.prisma.mailAccount.findUnique({ where: { id: recipient.recipientMailAccountId } })
-    if (
-      replier &&
-      replier.warmupAutoEnabled &&
-      replier.warmupStatus !== 'COLD' &&
-      replier.warmupStatus !== 'PAUSED'
-    ) {
-      const reply = buildReplyMail(sender.displayName, replier.displayName)
-      try {
-        await sendFromAccount(replier.id, sender.email, reply.subject, reply.body)
-        await warmupDeps.prisma.$transaction([
-          warmupDeps.prisma.mailAccount.update({
-            where: { id: replier.id },
-            data: { sentToday: { increment: 1 }, lastMailSentAt: new Date() },
-          }),
-          warmupDeps.prisma.warmupMailLog.create({
-            data: {
-              senderMailAccountId: replier.id,
-              recipientEmail: sender.email,
-              recipientType: 'system',
-              recipientMailAccountId: sender.id,
-              direction: 'reply',
-              subject: reply.subject,
-              body: reply.body,
-              status: 'sent',
-              stage: replier.warmupStage,
-            },
-          }),
-        ])
-        await warmupDeps.mailboxSyncQueue.add(
-          'sync-mailbox' as never,
-          { mailAccountId: replier.id, reason: 'post-send' } as never,
-          { jobId: `mailbox-post-reply-${replier.id}-${warmupDeps.now()}` }
-        )
-      } catch (err) {
-        await warmupDeps.prisma.warmupMailLog.create({
-          data: {
-            senderMailAccountId: replier.id,
-            recipientEmail: sender.email,
-            recipientType: 'system',
-            recipientMailAccountId: sender.id,
-            direction: 'reply',
-            subject: reply.subject,
-            body: reply.body,
-            status: classifyWarmupFailure(err),
-            stage: replier.warmupStage,
-            errorMessage: err instanceof Error ? err.message : String(err),
-          },
-        })
-      }
-    }
-  }
 }
 
 export function startWarmupWorker() {

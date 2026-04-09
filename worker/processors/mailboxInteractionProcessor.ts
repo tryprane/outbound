@@ -4,6 +4,7 @@ import { getMailboxProvider } from '~/lib/mailboxProviders'
 import { getRedisConnection } from '~/lib/redis'
 import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { mailboxInteractionQueue, type MailboxInteractionJobData } from '~/queues/mailboxInteractionQueue'
+import { generateWarmupMailWithGemini } from '~/lib/geminiWarmup'
 
 function hashToPercent(input: string) {
   let hash = 0
@@ -32,10 +33,36 @@ function buildReplyBody(senderName: string, recipientName: string) {
     `Appreciate the message. Just sending a quick acknowledgment.`,
     `Saw your message and wanted to reply while I had a moment.`,
     `Thanks for checking in. Sending a short response here.`,
+    `Got your message — replying quickly so the thread stays warm.`,
+    `Appreciate you reaching out. Sending a brief reply from my end.`,
+    `Thanks for the kind note. Just a quick word back from me.`,
+    `Glad I caught this. Replying while I have a moment here.`,
+    `Noted your message — wanted to acknowledge it promptly.`,
+    `Thanks for keeping in touch. A short reply from my side.`,
+    `Good timing on this. Just sending a warm reply back.`,
+    `Appreciate it — replying briefly while the thought is fresh.`,
+    `Received your message and wanted to send a quick note back.`,
+    `Thanks for the hello. Keeping my reply equally short.`,
+    `Good to stay in touch. Short reply from my desk.`,
+    `Saw this come through and wanted to reply before the day moved on.`,
+    `A brief acknowledgment from my end — thanks for the note.`,
+    `Replying quickly to keep the conversation alive.`,
+    `Thanks for the friendly message. Sending a short one back.`,
+    `Just a quick word back — appreciate you writing.`,
+    `Wanted to reply while I had the time. Thanks for the note.`,
+    `Short reply from me — just keeping things warm between us.`,
+    `Got it. Sending this quick note back so the thread doesn't go quiet.`,
+    `Appreciate the check-in. A small reply from my side.`,
+    `Always nice to have a note from you. Replying in kind.`,
+    `Thanks — a brief response from me while things are calm here.`,
+    `Received and replied. Hope your day continues well.`,
+    `A warm reply from me — glad to stay connected.`,
+    `Thanks for the message. Keeping this one short and sweet.`,
   ]
   const variant = variants[Math.abs(senderName.length + recipientName.length) % variants.length]
   return `<p>Hi ${recipientName},</p><p>${variant}</p><p>Best,<br/>${senderName}</p>`
 }
+
 
 function getFirstName(value?: string | null) {
   const fallback = value?.split('@')[0] || 'there'
@@ -44,6 +71,7 @@ function getFirstName(value?: string | null) {
 
 const DEFAULT_REPLY_PERCENT = 70
 const SPAM_RESCUE_REPLY_PERCENT = 90
+const GEMINI_REPLY_PROBABILITY = 0.75
 
 function shouldReply(messageId: string, boostedForSpamRescue = false) {
   const threshold = boostedForSpamRescue ? SPAM_RESCUE_REPLY_PERCENT : DEFAULT_REPLY_PERCENT
@@ -137,17 +165,54 @@ async function processMailboxInteractionJob(job: Job<MailboxInteractionJobData>)
   const siblingMailbox = await prisma.mailAccount.findUnique({ where: { email: counterpart }, select: { id: true } })
   if (!(warmupCounterpart || siblingMailbox)) return
 
-  const replySubject = buildReplySubject(refreshed.subject)
-  const replyBody = buildReplyBody(
+  // Try Gemini first for a contextual, threaded reply; fall back to template
+  const geminiMail = Math.random() < GEMINI_REPLY_PROBABILITY
+    ? await generateWarmupMailWithGemini({
+        senderName: refreshed.mailAccount.displayName,
+        recipientName: getFirstName(counterpart),
+        stage: 0,
+        direction: 'reply',
+        originalSubject: refreshed.subject ?? undefined,
+      })
+    : null
+
+  const replySubject = geminiMail?.subject ?? buildReplySubject(refreshed.subject)
+  const replyBody = geminiMail?.body ?? buildReplyBody(
     refreshed.mailAccount.displayName,
     getFirstName(counterpart)
   )
 
   await provider.sendReply(ref, { subject: replySubject, html: replyBody })
-  await prisma.mailboxMessage.update({
-    where: { id: refreshed.id },
-    data: { repliedAt: new Date() },
-  })
+
+  // Warmup accounting — mirrors the outbound warmup path so pacing
+  // (sentToday), cooldown (lastMailSentAt), and stage progression
+  // (WarmupMailLog) all correctly reflect this reply activity.
+  await prisma.$transaction([
+    prisma.mailboxMessage.update({
+      where: { id: refreshed.id },
+      data: { repliedAt: new Date() },
+    }),
+    prisma.mailAccount.update({
+      where: { id: refreshed.mailAccount.id },
+      data: {
+        sentToday: { increment: 1 },
+        lastMailSentAt: new Date(),
+      },
+    }),
+    prisma.warmupMailLog.create({
+      data: {
+        senderMailAccountId: refreshed.mailAccount.id,
+        recipientEmail: counterpart,
+        recipientType: siblingMailbox ? 'system' : 'external',
+        recipientMailAccountId: siblingMailbox?.id ?? undefined,
+        direction: 'reply',
+        subject: replySubject,
+        body: replyBody,
+        status: 'sent',
+        stage: refreshed.mailAccount.warmupStage,
+      },
+    }),
+  ])
 }
 
 export function startMailboxInteractionWorker() {
