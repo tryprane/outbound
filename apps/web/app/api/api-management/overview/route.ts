@@ -4,6 +4,12 @@ import { evaluateMailAccountGuardrail } from '@/lib/campaignGuardrails'
 
 export const dynamic = 'force-dynamic'
 
+function startOfToday() {
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  return now
+}
+
 export async function GET() {
   try {
     const [mailAccounts, whatsappAccounts] = await Promise.all([
@@ -35,9 +41,23 @@ export async function GET() {
       }),
     ])
 
+    const todayMailCounts = await prisma.sentMail.groupBy({
+      by: ['mailAccountId'],
+      where: {
+        mailAccountId: { in: mailAccounts.map((account) => account.id) },
+        sentAt: { gte: startOfToday() },
+      },
+      _count: { _all: true },
+    })
+
+    const sentTodayByMailAccount = new Map(
+      todayMailCounts.map((row) => [row.mailAccountId, row._count._all])
+    )
+
     const eligibleMailAccounts = mailAccounts.filter((account) => {
       const guardrail = evaluateMailAccountGuardrail(account)
-      return guardrail.eligible && account.sentToday < account.dailyLimit
+      const sentToday = sentTodayByMailAccount.get(account.id) ?? 0
+      return guardrail.eligible && sentToday < account.dailyLimit
     })
 
     const eligibleWhatsAppAccounts = whatsappAccounts.filter(
@@ -54,7 +74,7 @@ export async function GET() {
         warmed: mailAccounts.filter((account) => account.warmupStatus === 'WARMED').length,
         eligible: eligibleMailAccounts.length,
         remainingQuota: eligibleMailAccounts.reduce(
-          (sum, account) => sum + Math.max(0, account.dailyLimit - account.sentToday),
+          (sum, account) => sum + Math.max(0, account.dailyLimit - (sentTodayByMailAccount.get(account.id) ?? 0)),
           0
         ),
       },

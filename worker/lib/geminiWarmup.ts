@@ -9,7 +9,8 @@ type GenerateWarmupMailOptions = {
   senderName: string
   recipientName: string
   stage: number
-  direction: 'outbound'
+  direction: 'outbound' | 'reply'
+  originalSubject?: string
 }
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
@@ -55,7 +56,9 @@ export async function generateWarmupMailWithGemini(
   if (!client) return null
 
   const model = client.getGenerativeModel({ model: GEMINI_MODEL })
-  const { senderName, recipientName, stage, direction } = options
+  const { senderName, recipientName, stage, direction, originalSubject } = options
+
+  const isReply = direction === 'reply'
 
   const systemPrompt = `You generate realistic email warmup messages used for inbox reputation warming.
 Return ONLY valid JSON in this exact shape:
@@ -69,10 +72,18 @@ Rules:
 - Use simple HTML only in body, limited to <p> and <br/>.
 - No links, no signatures beyond the sender name, no placeholders, no markdown.
 - Avoid sales language, urgency, spammy wording, and promotional claims.
-- Vary the angle across simple hello notes, light check-ins, appreciation notes, shared-context notes, and casual follow-ups.
-- This is a ${direction} warmup message, not a real pitch.`
+- This is a ${isReply ? 'reply to a warmup email' : 'fresh outbound warmup message'}.${isReply ? '\n- Match the subject to the original: prefix it with "Re: " followed by the original subject line.' : '\n- Vary the angle across simple hello notes, light check-ins, appreciation notes, shared-context notes, and casual follow-ups.'}`
 
-  const userPrompt = `Write one short warmup email.
+  const userPrompt = isReply
+    ? `Write one short warmup reply email.
+Sender name (the one REPLYING): ${senderName}
+Recipient first name (the one who SENT the original): ${recipientName}
+${originalSubject ? `Original email subject: ${originalSubject}` : ''}
+
+The tone should feel like a brief, genuine reply from someone who received a friendly note.
+Subject must start with "Re: " followed by the original subject (or a close variation if unknown).
+Keep the body under 60 words. Return strict JSON only.`
+    : `Write one short warmup email.
 Sender name: ${senderName}
 Recipient first name: ${recipientName}
 Warmup stage: ${stage} out of an early ramp-up sequence.

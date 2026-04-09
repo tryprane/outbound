@@ -3,12 +3,68 @@ import { evaluateMailAccountGuardrail } from '~/lib/campaignGuardrails'
 
 const RESERVATION_WINDOW_MS = 2 * 60 * 1000
 
+type MailAccountSendState = {
+  sentToday: number
+  lastSentAt: Date | null
+}
+
 function intervalMsFromDailyLimit(dailyLimit: number) {
   return Math.floor((8 * 60 * 60 * 1000) / Math.max(1, dailyLimit))
 }
 
 function reservationExpiry() {
   return new Date(Date.now() + RESERVATION_WINDOW_MS)
+}
+
+function startOfToday() {
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  return now
+}
+
+async function getMailAccountSendState(accountIds: string[]) {
+  if (accountIds.length === 0) {
+    return new Map<string, MailAccountSendState>()
+  }
+
+  const [todayCounts, latestSends] = await Promise.all([
+    prisma.sentMail.groupBy({
+      by: ['mailAccountId'],
+      where: {
+        mailAccountId: { in: accountIds },
+        sentAt: { gte: startOfToday() },
+      },
+      _count: { _all: true },
+    }),
+    prisma.sentMail.groupBy({
+      by: ['mailAccountId'],
+      where: {
+        mailAccountId: { in: accountIds },
+      },
+      _max: { sentAt: true },
+    }),
+  ])
+
+  const state = new Map<string, MailAccountSendState>()
+  for (const accountId of accountIds) {
+    state.set(accountId, { sentToday: 0, lastSentAt: null })
+  }
+
+  for (const row of todayCounts) {
+    state.set(row.mailAccountId, {
+      sentToday: row._count._all,
+      lastSentAt: state.get(row.mailAccountId)?.lastSentAt ?? null,
+    })
+  }
+
+  for (const row of latestSends) {
+    state.set(row.mailAccountId, {
+      sentToday: state.get(row.mailAccountId)?.sentToday ?? 0,
+      lastSentAt: row._max.sentAt ?? null,
+    })
+  }
+
+  return state
 }
 
 async function claimMailAccountReservation(accountId: string, reservationKey: string) {
@@ -84,14 +140,16 @@ export async function pickNextPooledMailAccount(reservationKey: string) {
       { createdAt: 'asc' },
     ],
   })
+  const sendState = await getMailAccountSendState(accounts.map((account) => account.id))
 
   const now = Date.now()
   for (const account of accounts) {
     const guardrail = evaluateMailAccountGuardrail(account)
     if (!guardrail.eligible) continue
-    if (account.sentToday >= account.dailyLimit) continue
-    if (account.lastMailSentAt) {
-      const elapsed = now - account.lastMailSentAt.getTime()
+    const accountSendState = sendState.get(account.id) ?? { sentToday: 0, lastSentAt: null }
+    if (accountSendState.sentToday >= account.dailyLimit) continue
+    if (accountSendState.lastSentAt) {
+      const elapsed = now - accountSendState.lastSentAt.getTime()
       if (elapsed < intervalMsFromDailyLimit(account.dailyLimit)) continue
     }
     const claimed = await claimMailAccountReservation(account.id, reservationKey)
@@ -134,6 +192,7 @@ export async function pickReservedCampaignMailAccount(
     include: { mailAccount: true },
     orderBy: { lastSentAt: 'asc' },
   })
+  const sendState = await getMailAccountSendState(assignments.map((assignment) => assignment.mailAccount.id))
 
   const intervalMs = intervalMsFromDailyLimit(dailyMailsPerAccount)
   const now = Date.now()
@@ -141,9 +200,10 @@ export async function pickReservedCampaignMailAccount(
   for (const assignment of assignments) {
     const account = assignment.mailAccount
     if (!evaluateMailAccountGuardrail(account).eligible) continue
-    if (account.sentToday >= dailyMailsPerAccount) continue
-    if (account.lastMailSentAt) {
-      const elapsed = now - account.lastMailSentAt.getTime()
+    const accountSendState = sendState.get(account.id) ?? { sentToday: 0, lastSentAt: null }
+    if (accountSendState.sentToday >= dailyMailsPerAccount) continue
+    if (accountSendState.lastSentAt) {
+      const elapsed = now - accountSendState.lastSentAt.getTime()
       if (elapsed < intervalMs) continue
     }
     const claimed = await claimMailAccountReservation(account.id, reservationKey)

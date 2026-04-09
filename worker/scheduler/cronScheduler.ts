@@ -553,16 +553,10 @@ async function pollMailboxSyncAccounts() {
       where: {
         OR: [
           { type: 'gmail', refreshToken: { not: null } },
-          {
-            type: 'zoho',
-            OR: [
-              { smtpPassword: { not: null } },
-              { zohoRefreshToken: { not: null } },
-            ],
-          },
+          { type: 'zoho', zohoRefreshToken: { not: null } },
         ],
       },
-      select: { id: true, type: true, mailboxSyncError: true },
+      select: { id: true, type: true, mailboxSyncError: true, mailboxLastSyncedAt: true },
     })
 
     for (const account of accounts) {
