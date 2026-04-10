@@ -196,7 +196,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="glass-card" style={{ padding: '22px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
@@ -247,7 +247,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
             {campaign.upcomingSchedule?.slots?.length ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
                 {campaign.upcomingSchedule.slots.slice(0, 25).map((slot) => (
-                  <div key={`${slot.position}-${slot.scheduledAt}`} style={{ display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: '10px', padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+                  <div key={`${slot.position}-${slot.scheduledAt}`} className="grid gap-2 sm:grid-cols-[40px_minmax(0,1fr)_auto]" style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
                     <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>#{slot.position}</div>
                     <div>
                       <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>{slot.senderEmail}</div>

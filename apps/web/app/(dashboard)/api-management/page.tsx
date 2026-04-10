@@ -122,7 +122,7 @@ export default function ApiManagementPage() {
         </div>
       ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="glass-card" style={{ padding: '22px' }}>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>Email eligible senders</div>
           <div style={{ fontSize: '30px', fontWeight: 700, color: 'var(--accent)' }}>{overview?.email.eligible ?? 0}</div>
@@ -153,10 +153,10 @@ export default function ApiManagementPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 420px) minmax(420px, 1fr)', gap: '20px' }}>
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(280px,420px)_minmax(0,1fr)]">
         <div className="glass-card" style={{ padding: '24px' }}>
           <h2 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '14px' }}>API keys</h2>
-          <form onSubmit={handleCreateKey} style={{ display: 'flex', gap: '10px', marginBottom: '18px' }}>
+          <form onSubmit={handleCreateKey} className="flex flex-col gap-2 sm:flex-row" style={{ marginBottom: '18px' }}>
             <input
               className="input-base"
               value={keyName}

@@ -45,10 +45,10 @@ export function PromptEditor({ value, onChange, csvFileId, campaignType }: Props
   }
 
   return (
-    <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
+    <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,400px)] lg:items-start lg:gap-6">
       
       {/* Editor Side */}
-      <div style={{ flex: 1 }}>
+      <div className="min-w-0">
         <div style={{ marginBottom: '12px' }}>
           <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
             System Prompt for Gemini 2.5 Flash
@@ -71,7 +71,7 @@ export function PromptEditor({ value, onChange, csvFileId, campaignType }: Props
           }}
         />
 
-        <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+        <div className="flex flex-col gap-3 sm:flex-row" style={{ marginTop: '16px' }}>
           <button
             onClick={() => handlePreview()}
             className="btn-primary"
@@ -84,7 +84,7 @@ export function PromptEditor({ value, onChange, csvFileId, campaignType }: Props
       </div>
 
       {/* Preview Side */}
-      <div style={{ width: '400px', flexShrink: 0 }}>
+      <div className="min-w-0">
         {error && (
           <div style={{ padding: '12px', background: 'rgba(239,68,68,0.1)', color: 'var(--error)', borderRadius: '8px', fontSize: '13px', marginBottom: '16px' }}>
             {error}
@@ -100,7 +100,7 @@ export function PromptEditor({ value, onChange, csvFileId, campaignType }: Props
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 AI Preview Output
               </span>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <button 
                   onClick={() => handlePreview(-1)} 
                   disabled={previewRowIndex === 0 || previewing}

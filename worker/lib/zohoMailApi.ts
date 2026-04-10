@@ -80,6 +80,15 @@ function safeDate(value?: string | number | null) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+function safeTimestamp(value?: string | number | null) {
+  const date = safeDate(value)
+  return date ? date.getTime() : null
+}
+
+function getZohoMessageTimestamp(message: ZohoMessagePayload) {
+  return safeTimestamp(message.receivedTime) ?? safeTimestamp(message.sentDateInGMT)
+}
+
 async function zohoApiRequest<T>(
   account: MailAccount,
   path: string,
@@ -261,12 +270,12 @@ export async function listZohoMessages(
     const cutoff = options.receivedAfter
     const filtered: ZohoMessagePayload[] = []
     for (const msg of raw) {
-      const ts = Number(msg.receivedTime ?? msg.sentDateInGMT ?? 0)
-      // ts === 0 means unknown date — include it rather than silently drop
-      if (ts === 0 || ts >= cutoff) {
+      const ts = getZohoMessageTimestamp(msg)
+      // Unknown dates should be synced so a Zoho date-format mismatch does not hide the inbox.
+      if (ts === null || ts >= cutoff) {
         filtered.push(msg)
       } else {
-        // Once we see a message older than the cutoff (sorted desc) we can stop
+        // Once we see a valid message older than the cutoff (sorted desc) we can stop.
         break
       }
     }

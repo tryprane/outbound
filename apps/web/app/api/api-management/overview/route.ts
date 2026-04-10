@@ -50,9 +50,10 @@ export async function GET() {
       _count: { _all: true },
     })
 
-    const sentTodayByMailAccount = new Map(
-      todayMailCounts.map((row) => [row.mailAccountId, row._count._all])
-    )
+    const sentTodayByMailAccount = new Map(mailAccounts.map((account) => [account.id, account.sentToday]))
+    for (const row of todayMailCounts) {
+      sentTodayByMailAccount.set(row.mailAccountId, Math.max(sentTodayByMailAccount.get(row.mailAccountId) ?? 0, row._count._all))
+    }
 
     const eligibleMailAccounts = mailAccounts.filter((account) => {
       const guardrail = evaluateMailAccountGuardrail(account)

@@ -116,7 +116,7 @@ export default function CampaignLogsPage({ params }: { params: { id: string } })
         <button className="btn-primary" onClick={handleExport}>Export CSV</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style={{ marginBottom: '18px' }}>
         <div className="glass-card" style={{ padding: '16px' }}>
           <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--accent)' }}>{total.toLocaleString()}</div>
           <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Total</div>
@@ -135,12 +135,12 @@ export default function CampaignLogsPage({ params }: { params: { id: string } })
         </div>
       </div>
 
-      <div className="glass-card" style={{ padding: '14px', marginBottom: '18px', display: 'flex', gap: '10px' }}>
+      <div className="glass-card flex flex-col gap-2 sm:flex-row" style={{ padding: '14px', marginBottom: '18px' }}>
         <select
           className="input-base"
           value={filters.status}
           onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value, page: 1 }))}
-          style={{ width: 180 }}
+          style={{ width: 'min(180px, 100%)' }}
         >
           <option value="">All Status</option>
           <option value="sent">Sent</option>

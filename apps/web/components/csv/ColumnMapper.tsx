@@ -98,11 +98,10 @@ export function ColumnMapper({
           return (
             <div
               key={header}
-              className="glass-card"
+              className="glass-card flex-col sm:flex-row sm:items-center"
               style={{
                 padding: '14px 16px',
                 display: 'flex',
-                alignItems: 'center',
                 gap: '16px',
                 borderLeft: `3px solid ${FIELD_COLORS[field]}`,
               }}
@@ -125,7 +124,7 @@ export function ColumnMapper({
                 value={field}
                 onChange={(e) => handleChange(header, e.target.value as StandardField)}
                 className="input-base"
-                style={{ width: '220px', flexShrink: 0, fontSize: '13px' }}
+                style={{ width: 'min(220px, 100%)', flexShrink: 0, fontSize: '13px' }}
               >
                 {FIELD_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>
