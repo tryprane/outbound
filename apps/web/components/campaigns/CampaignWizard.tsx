@@ -263,7 +263,7 @@ export function CampaignWizard() {
           No ACTIVE + CONNECTED WhatsApp account found. Connect from Mail Accounts page first.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        <div className="grid gap-2 sm:grid-cols-2">
           {eligibleWhatsAppAccounts.map((account) => {
             const selected = whatsappAccountIds.includes(account.id)
             return (

@@ -77,8 +77,8 @@ export function MailDistributionPlanner({
   return (
     <div>
       {/* Distribution settings */}
-      <div style={{ marginBottom: '24px', display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, background: 'var(--bg-secondary)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+      <div className="grid gap-4 md:grid-cols-2" style={{ marginBottom: '24px' }}>
+        <div style={{ background: 'var(--bg-secondary)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)' }}>
           <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
             Daily Mails Per Account
           </label>
@@ -97,7 +97,7 @@ export function MailDistributionPlanner({
           />
         </div>
 
-        <div style={{ flex: 1, background: 'var(--accent-light)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(99,102,241,0.3)' }}>
+        <div style={{ background: 'var(--accent-light)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(99,102,241,0.3)' }}>
           <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--accent)', marginBottom: '8px' }}>
             Total Campaign Capacity
           </div>
@@ -118,7 +118,7 @@ export function MailDistributionPlanner({
         Only accounts with <strong style={{ color: 'var(--success)' }}>Warmup = WARMED</strong> and Active status can participate.
       </div>
       
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
+      <div className="grid gap-3 sm:grid-cols-[repeat(auto-fill,minmax(280px,1fr))]">
         {accounts.map(account => {
           const isSelected = selectedAccountIds.includes(account.id)
           const isInactive = !account.isActive

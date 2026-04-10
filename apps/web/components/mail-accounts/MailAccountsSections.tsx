@@ -244,7 +244,7 @@ export function AccountsView(props: {
           <div style={{ display: 'grid', gap: '12px' }}>
             {props.accounts.map((account) => (
               <div key={account.id} style={{ ...surfaceCardStyle, padding: '18px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(320px,1fr)', gap: '18px' }}>
+                <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]" style={{ gap: '18px' }}>
                   <div>
                     <AccountHeader
                       title={account.email}
@@ -292,7 +292,7 @@ export function AccountsView(props: {
                     />
                   </div>
                   <div style={{ display: 'grid', gap: '10px', alignContent: 'start' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '92px 1fr', gap: '8px' }}>
+                    <div className="grid gap-2 sm:grid-cols-[92px_minmax(0,1fr)]">
                       <input
                         className="input-base"
                         type="number"
@@ -431,7 +431,7 @@ export function AccountsView(props: {
           <div style={{ display: 'grid', gap: '12px' }}>
             {props.whatsappAccounts.map((wa) => (
               <div key={wa.id} style={{ ...surfaceCardStyle, padding: '18px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(280px,360px)', gap: '18px' }}>
+                <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]" style={{ gap: '18px' }}>
                   <div>
                     <AccountHeader
                       title={wa.displayName}
@@ -439,7 +439,7 @@ export function AccountsView(props: {
                       statusLabel={wa.connectionStatus}
                       secondaryStatus={wa.phoneNumber || 'No phone number saved'}
                     />
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(160px,1fr))', gap: '10px', marginTop: '14px' }}>
+                    <div className="grid gap-3 sm:grid-cols-2" style={{ marginTop: '14px' }}>
                       <MetricPair label="Daily send" value={`${wa.sentToday}/${wa.dailyLimit}`} />
                       <MetricPair label="Total sent" value={wa._count.sentMessages} />
                     </div>
@@ -454,7 +454,7 @@ export function AccountsView(props: {
                           <img
                             src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(wa.lastQr)}`}
                             alt={`Pair ${wa.displayName}`}
-                            style={{ width: '220px', height: '220px', borderRadius: '16px', background: '#fff', padding: '10px' }}
+                            style={{ width: 'min(220px, 100%)', height: 'auto', aspectRatio: '1 / 1', borderRadius: '16px', background: '#fff', padding: '10px' }}
                           />
                         </div>
                       </div>

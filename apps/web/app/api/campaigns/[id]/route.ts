@@ -14,6 +14,7 @@ type ScheduleAccountState = {
   email: string
   displayName: string
   type: string
+  dailyLimit: number
   nextAvailableAt: Date
   plannedToday: number
 }
@@ -41,12 +42,12 @@ function buildUpcomingSchedule(
     return { nextRunAt: null, slots: [] }
   }
 
-  const intervalMs = Math.max(60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, dailyMailsPerAccount)))
   const slots: UpcomingSlot[] = []
 
   for (let i = 0; i < slotsRequested; i++) {
     for (const state of states) {
-      while (state.plannedToday >= dailyMailsPerAccount) {
+      const effectiveDailyLimit = Math.min(dailyMailsPerAccount, state.dailyLimit)
+      while (state.plannedToday >= effectiveDailyLimit) {
         state.nextAvailableAt = nextMidnight(state.nextAvailableAt)
         state.plannedToday = 0
       }
@@ -59,6 +60,8 @@ function buildUpcomingSchedule(
     })
 
     const chosen = states[0]
+    const effectiveDailyLimit = Math.min(dailyMailsPerAccount, chosen.dailyLimit)
+    const intervalMs = Math.max(60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, effectiveDailyLimit)))
     const slotTime = new Date(chosen.nextAvailableAt)
 
     slots.push({
@@ -114,6 +117,7 @@ export async function GET(
                 phoneNumber: true,
                 isActive: true,
                 connectionStatus: true,
+                dailyLimit: true,
                 sentToday: true,
                 lastMessageSentAt: true,
               },
@@ -144,7 +148,8 @@ export async function GET(
             .map((assignment) => assignment.whatsappAccount)
             .filter((account) => account.isActive && account.connectionStatus === 'CONNECTED')
             .map((account) => {
-              const intervalMs = Math.max(60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, campaign.dailyMailsPerAccount)))
+              const effectiveDailyLimit = Math.min(campaign.dailyMailsPerAccount, account.dailyLimit)
+              const intervalMs = Math.max(60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, effectiveDailyLimit)))
               const nextByInterval = account.lastMessageSentAt
                 ? new Date(account.lastMessageSentAt.getTime() + intervalMs)
                 : now
@@ -154,6 +159,7 @@ export async function GET(
                 email: account.phoneNumber || account.displayName,
                 displayName: account.displayName,
                 type: 'whatsapp',
+                dailyLimit: account.dailyLimit,
                 nextAvailableAt: nextByInterval > now ? nextByInterval : now,
                 plannedToday: account.sentToday,
               }
@@ -162,7 +168,8 @@ export async function GET(
             .map((assignment) => assignment.mailAccount)
             .filter((account) => evaluateMailAccountGuardrail(account).eligible)
             .map((account) => {
-              const intervalMs = Math.max(60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, campaign.dailyMailsPerAccount)))
+              const effectiveDailyLimit = Math.min(campaign.dailyMailsPerAccount, account.dailyLimit)
+              const intervalMs = Math.max(60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, effectiveDailyLimit)))
               const nextByInterval = account.lastMailSentAt
                 ? new Date(account.lastMailSentAt.getTime() + intervalMs)
                 : now
@@ -172,6 +179,7 @@ export async function GET(
                 email: account.email,
                 displayName: account.displayName,
                 type: account.type,
+                dailyLimit: account.dailyLimit,
                 nextAvailableAt: nextByInterval > now ? nextByInterval : now,
                 plannedToday: account.sentToday,
               }

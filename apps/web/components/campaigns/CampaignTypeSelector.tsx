@@ -26,7 +26,7 @@ const options: { type: CampaignType; flag: string; label: string; desc: string; 
 
 export function CampaignTypeSelector({ value, onChange }: CampaignTypeSelectorProps) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+    <div className="grid gap-4 sm:grid-cols-2">
       {options.map((opt) => {
         const selected = value === opt.type
         return (

@@ -69,5 +69,5 @@ export function AccountHeader(props: {
 }
 
 export function ActionGrid({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: '8px' }}>{children}</div>
+  return <div className="grid gap-2 sm:grid-cols-2">{children}</div>
 }

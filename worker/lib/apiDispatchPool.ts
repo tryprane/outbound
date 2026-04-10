@@ -27,7 +27,11 @@ async function getMailAccountSendState(accountIds: string[]) {
     return new Map<string, MailAccountSendState>()
   }
 
-  const [todayCounts, latestSends] = await Promise.all([
+  const [accounts, todayCounts, latestSends] = await Promise.all([
+    prisma.mailAccount.findMany({
+      where: { id: { in: accountIds } },
+      select: { id: true, sentToday: true, lastMailSentAt: true },
+    }),
     prisma.sentMail.groupBy({
       by: ['mailAccountId'],
       where: {
@@ -50,17 +54,34 @@ async function getMailAccountSendState(accountIds: string[]) {
     state.set(accountId, { sentToday: 0, lastSentAt: null })
   }
 
+  for (const account of accounts) {
+    state.set(account.id, {
+      sentToday: account.sentToday,
+      lastSentAt: account.lastMailSentAt,
+    })
+  }
+
   for (const row of todayCounts) {
+    const current = state.get(row.mailAccountId) ?? { sentToday: 0, lastSentAt: null }
     state.set(row.mailAccountId, {
-      sentToday: row._count._all,
-      lastSentAt: state.get(row.mailAccountId)?.lastSentAt ?? null,
+      sentToday: Math.max(current.sentToday, row._count._all),
+      lastSentAt: current.lastSentAt,
     })
   }
 
   for (const row of latestSends) {
+    const current = state.get(row.mailAccountId) ?? { sentToday: 0, lastSentAt: null }
+    const latestSentMailAt = row._max.sentAt ?? null
+    const lastSentAt =
+      current.lastSentAt && latestSentMailAt
+        ? current.lastSentAt > latestSentMailAt
+          ? current.lastSentAt
+          : latestSentMailAt
+        : current.lastSentAt ?? latestSentMailAt
+
     state.set(row.mailAccountId, {
-      sentToday: state.get(row.mailAccountId)?.sentToday ?? 0,
-      lastSentAt: row._max.sentAt ?? null,
+      sentToday: current.sentToday,
+      lastSentAt,
     })
   }
 
@@ -194,17 +215,17 @@ export async function pickReservedCampaignMailAccount(
   })
   const sendState = await getMailAccountSendState(assignments.map((assignment) => assignment.mailAccount.id))
 
-  const intervalMs = intervalMsFromDailyLimit(dailyMailsPerAccount)
   const now = Date.now()
 
   for (const assignment of assignments) {
     const account = assignment.mailAccount
     if (!evaluateMailAccountGuardrail(account).eligible) continue
+    const effectiveDailyLimit = Math.min(dailyMailsPerAccount, account.dailyLimit)
     const accountSendState = sendState.get(account.id) ?? { sentToday: 0, lastSentAt: null }
-    if (accountSendState.sentToday >= dailyMailsPerAccount) continue
+    if (accountSendState.sentToday >= effectiveDailyLimit) continue
     if (accountSendState.lastSentAt) {
       const elapsed = now - accountSendState.lastSentAt.getTime()
-      if (elapsed < intervalMs) continue
+      if (elapsed < intervalMsFromDailyLimit(effectiveDailyLimit)) continue
     }
     const claimed = await claimMailAccountReservation(account.id, reservationKey)
     if (claimed) return account

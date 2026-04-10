@@ -7,8 +7,8 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-screen px-6 py-6">
-      <div className="mx-auto flex max-w-[1600px] gap-6">
+    <div className="min-h-screen px-3 py-3 sm:px-4 sm:py-4 xl:px-6 xl:py-6">
+      <div className="mx-auto flex max-w-[1600px] min-w-0 flex-col gap-3 sm:gap-4 xl:flex-row xl:gap-6">
         <Sidebar />
         <main className="min-w-0 flex-1">
           <Topbar />

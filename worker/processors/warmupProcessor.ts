@@ -398,10 +398,15 @@ async function processWarmupJob(job: Job<WarmupJobData>) {
     console.log(`[Warmup] Skipping ${sender.email}: status is ${sender.warmupStatus}`)
     return
   }
+  if (sender.apiReservedUntil && sender.apiReservedUntil > new Date()) {
+    console.log(`[Warmup] Skipping ${sender.email}: sender is reserved for campaign/API mail`)
+    return
+  }
 
-  const intervalMs = Math.max(3 * 60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, sender.recommendedDailyLimit)))
-  if (sender.sentToday >= sender.recommendedDailyLimit) {
-    console.log(`[Warmup] Skipping ${sender.email}: daily limit reached (${sender.sentToday}/${sender.recommendedDailyLimit})`)
+  const effectiveDailyLimit = Math.min(sender.recommendedDailyLimit, sender.dailyLimit)
+  const intervalMs = Math.max(3 * 60_000, Math.floor((8 * 60 * 60 * 1000) / Math.max(1, effectiveDailyLimit)))
+  if (sender.sentToday >= effectiveDailyLimit) {
+    console.log(`[Warmup] Skipping ${sender.email}: daily limit reached (${sender.sentToday}/${effectiveDailyLimit})`)
     return
   }
   if (sender.lastMailSentAt && warmupDeps.now() - sender.lastMailSentAt.getTime() < intervalMs) {
