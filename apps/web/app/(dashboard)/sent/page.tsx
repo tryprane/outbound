@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { PaginationControls } from '@/components/ui/pagination-controls'
@@ -17,6 +17,8 @@ interface MailLog {
   openedAt: string | null
   lastOpenedAt: string | null
   openCount: number
+  repliedAt: string | null
+  replyCount: number
   complaintCount: number
   complainedAt: string | null
   errorMessage: string | null
@@ -24,7 +26,18 @@ interface MailLog {
 
 interface CampaignsAndAccounts {
   campaigns: { id: string; name: string; channel: 'EMAIL' | 'WHATSAPP' }[]
-  accounts: { id: string; email: string; dailyLimit: number; sentToday: number }[]
+  accounts: {
+    id: string
+    email: string
+    displayName: string
+    dailyLimit: number
+    sentToday: number
+    isActive: boolean
+    warmupStatus: 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
+    mailboxSyncStatus: 'idle' | 'syncing' | 'error'
+    mailboxHealthScore: number
+    mailboxHealthStatus: string
+  }[]
 }
 
 function formatDate(iso: string) {
@@ -36,7 +49,18 @@ function formatDate(iso: string) {
 
 export default function GlobalSentMailPage() {
   const [logs, setLogs] = useState<MailLog[]>([])
-  const [counts, setCounts] = useState({ sent: 0, failed: 0, bounced: 0, complaints: 0, opened: 0, unopened: 0, openRate: 0 })
+  const [counts, setCounts] = useState({
+    sent: 0,
+    failed: 0,
+    bounced: 0,
+    complaints: 0,
+    opened: 0,
+    unopened: 0,
+    openRate: 0,
+    replied: 0,
+    unreplied: 0,
+    replyRate: 0,
+  })
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
   const [limit, setLimit] = useState(50)
@@ -53,6 +77,17 @@ export default function GlobalSentMailPage() {
 
   // Dropdowns for filters
   const [options, setOptions] = useState<CampaignsAndAccounts>({ campaigns: [], accounts: [] })
+  const selectedAccount = useMemo(
+    () => options.accounts.find((account) => account.id === filters.mailAccountId) || null,
+    [filters.mailAccountId, options.accounts]
+  )
+
+  const visibleLogCount = logs.length
+
+  function formatAccountOptionLabel(account: CampaignsAndAccounts['accounts'][number]) {
+    const activity = account.isActive ? account.warmupStatus : 'INACTIVE'
+    return `${account.email} - ${account.sentToday}/${account.dailyLimit} - ${activity} - sync ${account.mailboxSyncStatus}`
+  }
 
   useEffect(() => {
     // Fetch dropdown options once
@@ -87,7 +122,18 @@ export default function GlobalSentMailPage() {
       .then(r => r.json())
       .then(data => {
         setLogs(data.logs || [])
-        setCounts(data.counts || { sent: 0, failed: 0, bounced: 0, complaints: 0, opened: 0, unopened: 0, openRate: 0 })
+        setCounts(data.counts || {
+          sent: 0,
+          failed: 0,
+          bounced: 0,
+          complaints: 0,
+          opened: 0,
+          unopened: 0,
+          openRate: 0,
+          replied: 0,
+          unreplied: 0,
+          replyRate: 0,
+        })
         setTotal(data.total || 0)
         setPages(data.pages || 1)
         setLimit(data.limit || limit)
@@ -162,6 +208,10 @@ export default function GlobalSentMailPage() {
           <div style={{ fontSize: '32px', fontWeight: 700, color: '#f97316' }}>{counts.complaints.toLocaleString()}</div>
           <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Complaints</div>
         </div>
+        <div className="glass-card" style={{ flex: 1, padding: '24px', borderTop: '3px solid #0f766e' }}>
+          <div style={{ fontSize: '32px', fontWeight: 700, color: '#0f766e' }}>{counts.replied.toLocaleString()}</div>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Replied</div>
+        </div>
       </div>
 
       <div className="glass-card" style={{ padding: '18px', marginBottom: '32px' }}>
@@ -178,9 +228,17 @@ export default function GlobalSentMailPage() {
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Open rate</div>
             <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent)' }}>{counts.openRate}%</div>
           </div>
+          <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Awaiting reply</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f766e' }}>{counts.unreplied.toLocaleString()}</div>
+          </div>
+          <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Reply rate</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f766e' }}>{counts.replyRate}%</div>
+          </div>
         </div>
         <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-          Open tracking is best-effort and depends on the recipient client loading remote images.
+          Open tracking is best-effort and depends on the recipient client loading remote images. Reply tracking is inferred from synced mailbox threads.
         </div>
       </div>
 
@@ -211,6 +269,33 @@ export default function GlobalSentMailPage() {
         </div>
       )}
 
+      {options.accounts.length > 0 ? (
+        <details className="glass-card" style={{ padding: '18px', marginBottom: '24px' }}>
+          <summary style={{ cursor: 'pointer', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+            Sender account status and limits
+          </summary>
+          <div style={{ display: 'grid', gap: '10px', marginTop: '14px' }}>
+            {options.accounts.map((account) => (
+              <div key={account.id} style={{ display: 'grid', gap: '6px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>{account.email}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{account.displayName || 'No display name set'}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <StatusBadge status={account.isActive ? 'active' : 'paused'} />
+                    <StatusBadge status={account.mailboxSyncStatus} />
+                  </div>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Daily limit {account.sentToday}/{account.dailyLimit} | Warmup {account.warmupStatus} | Health {account.mailboxHealthScore}/100 ({account.mailboxHealthStatus})
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
       {/* Filters */}
       <div className="glass-card" style={{ padding: '20px', marginBottom: '24px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: 1, minWidth: '180px' }}>
@@ -232,8 +317,13 @@ export default function GlobalSentMailPage() {
             onChange={e => setFilters(f => ({ ...f, mailAccountId: e.target.value, page: 1 }))}
           >
             <option value="">All Accounts</option>
-            {options.accounts.map(a => <option key={a.id} value={a.id}>{a.email}</option>)}
+            {options.accounts.map(a => <option key={a.id} value={a.id}>{formatAccountOptionLabel(a)}</option>)}
           </select>
+          {selectedAccount ? (
+            <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
+              {selectedAccount.sentToday}/{selectedAccount.dailyLimit} sent today | {selectedAccount.isActive ? selectedAccount.warmupStatus : 'INACTIVE'} | sync {selectedAccount.mailboxSyncStatus}
+            </div>
+          ) : null}
         </div>
         <div style={{ width: '140px' }}>
           <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>Status</label>
@@ -278,6 +368,25 @@ export default function GlobalSentMailPage() {
 
       {/* Table */}
       <div className="glass-card" style={{ overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', alignItems: 'center', padding: '16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            Showing {visibleLogCount.toLocaleString()} of {total.toLocaleString()} sent mail logs
+          </div>
+          {pages > 0 ? (
+            <PaginationControls
+              page={filters.page}
+              pages={pages}
+              total={total}
+              limit={limit}
+              onPageChange={(page) => setFilters((current) => ({ ...current, page }))}
+              onLimitChange={(value) => {
+                setLimit(value)
+                setFilters((current) => ({ ...current, page: 1 }))
+              }}
+              label="sent logs"
+            />
+          ) : null}
+        </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
@@ -288,7 +397,7 @@ export default function GlobalSentMailPage() {
                 <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Sender</th>
                 <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Date</th>
                 <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Status</th>
-                <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Open</th>
+                <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Open / Reply</th>
                 <th style={{ padding: '16px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Actions</th>
               </tr>
             </thead>
@@ -327,7 +436,10 @@ export default function GlobalSentMailPage() {
                     </td>
                     <td style={{ padding: '16px' }}>
                       {log.status === 'sent' ? (
-                        <StatusBadge status={log.openedAt ? 'opened' : 'unopened'} />
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                          <StatusBadge status={log.openedAt ? 'opened' : 'unopened'} />
+                          <StatusBadge status={log.repliedAt ? 'replied' : 'awaiting reply'} />
+                        </div>
                       ) : (
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>N/A</span>
                       )}
@@ -335,6 +447,8 @@ export default function GlobalSentMailPage() {
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
                           {log.openedAt ? `Opened ${formatDate(log.openedAt)}` : 'Not opened yet'}
                           {log.openCount > 1 ? ` | ${log.openCount} views` : ''}
+                          {log.repliedAt ? ` | Replied ${formatDate(log.repliedAt)}` : ''}
+                          {log.replyCount > 1 ? ` | ${log.replyCount} replies` : ''}
                         </div>
                       )}
                     </td>

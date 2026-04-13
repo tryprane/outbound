@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { loadEmailOpenStates } from '@/lib/emailOpenTracking'
+import { loadSentMailReplyStates } from '@/lib/sentMailReplyTracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -176,12 +177,25 @@ export async function GET(request: NextRequest) {
         complaintsByMailId.set(complaint.sentMailId, (complaintsByMailId.get(complaint.sentMailId) || 0) + 1)
       }
 
-      const header = 'id,campaign,sender,toEmail,subject,status,sentAt,openedAt,openCount,openStatus,complaints,errorMessage'
+      const header = 'id,campaign,sender,toEmail,subject,status,sentAt,openedAt,openCount,openStatus,repliedAt,replyCount,replyStatus,complaints,errorMessage'
+      const replyStates = await loadSentMailReplyStates(
+        records
+          .filter((record) => record.status === 'sent')
+          .map((record) => ({
+            id: record.id,
+            mailAccountId: record.mailAccountId,
+            toEmail: record.toEmail,
+            subject: record.subject,
+            sentAt: record.sentAt,
+          }))
+      )
       const rows = records.map((r) => {
         const esc = (v: string | null | undefined) => `"${(v ?? '').replace(/"/g, '""')}"`
         const openState = openStates.get(r.id)
         const openStatus = openState?.openCount ? 'opened' : 'unopened'
         const complaintCount = complaintsByMailId.get(r.id) || 0
+        const replyState = replyStates.get(r.id)
+        const replyStatus = replyState?.repliedAt ? 'replied' : 'awaiting-reply'
         return [
           esc(r.id),
           esc(r.campaign?.name || `API:${r.apiDispatchRequest?.apiKey.name || 'Unknown'}`),
@@ -193,6 +207,9 @@ export async function GET(request: NextRequest) {
           esc(openState?.openedAt || ''),
           esc(String(openState?.openCount ?? 0)),
           esc(openStatus),
+          esc(replyState?.repliedAt || ''),
+          esc(String(replyState?.replyCount ?? 0)),
+          esc(replyStatus),
           esc(String(complaintCount)),
           esc(r.errorMessage),
         ].join(',')
@@ -207,7 +224,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const [logs, total, sentCount, failedCount, bouncedCount, sentIds, complaintCount] = await Promise.all([
+    const [logs, total, sentCount, failedCount, bouncedCount, sentRecords, complaintCount] = await Promise.all([
       prisma.sentMail.findMany({
         where,
         orderBy: { sentAt: 'desc' },
@@ -231,7 +248,13 @@ export async function GET(request: NextRequest) {
       prisma.sentMail.count({ where: { ...where, status: 'bounced' } }),
       prisma.sentMail.findMany({
         where: { ...where, status: 'sent' },
-        select: { id: true },
+        select: {
+          id: true,
+          mailAccountId: true,
+          toEmail: true,
+          subject: true,
+          sentAt: true,
+        },
       }),
       prisma.complaintEvent.count({ where: complaintWhere }),
     ])
@@ -240,11 +263,12 @@ export async function GET(request: NextRequest) {
     try {
       openStates = await loadEmailOpenStates([
         ...logs.map((log) => log.id),
-        ...sentIds.map((record) => record.id),
+        ...sentRecords.map((record) => record.id),
       ])
     } catch (error) {
       console.warn('[Sent GET]', error)
     }
+    const replyStates = await loadSentMailReplyStates(sentRecords)
     const complaintEvents = await prisma.complaintEvent.findMany({
       where: {
         sentMailId: { in: logs.map((log) => log.id) },
@@ -270,18 +294,25 @@ export async function GET(request: NextRequest) {
     const hydratedLogs = logs.map((log) => {
       const state = openStates.get(log.id)
       const complaintState = complaintsByMailId.get(log.id)
+      const replyState = replyStates.get(log.id)
       return {
         ...log,
         openedAt: state?.openedAt || null,
         lastOpenedAt: state?.lastOpenedAt || null,
         openCount: state?.openCount || 0,
+        repliedAt: replyState?.repliedAt || null,
+        replyCount: replyState?.replyCount || 0,
         complaintCount: complaintState?.count || 0,
         complainedAt: complaintState?.firstAt || null,
       }
     })
-    const openedCount = sentIds.reduce((count, record) => {
+    const openedCount = sentRecords.reduce((count, record) => {
       const state = openStates.get(record.id)
       return count + (state?.openCount ? 1 : 0)
+    }, 0)
+    const repliedCount = sentRecords.reduce((count, record) => {
+      const state = replyStates.get(record.id)
+      return count + (state?.repliedAt ? 1 : 0)
     }, 0)
 
     return NextResponse.json({
@@ -299,6 +330,9 @@ export async function GET(request: NextRequest) {
         opened: openedCount,
         unopened: Math.max(0, sentCount - openedCount),
         openRate: sentCount > 0 ? Math.round((openedCount / sentCount) * 100) : 0,
+        replied: repliedCount,
+        unreplied: Math.max(0, sentCount - repliedCount),
+        replyRate: sentCount > 0 ? Math.round((repliedCount / sentCount) * 100) : 0,
       },
     })
   } catch (error) {

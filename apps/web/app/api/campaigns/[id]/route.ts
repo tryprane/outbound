@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { loadEmailOpenStates } from '@/lib/emailOpenTracking'
 import { evaluateMailAccountGuardrail } from '@/lib/campaignGuardrails'
+import { loadSentMailReplyStates } from '@/lib/sentMailReplyTracking'
 
 function nextMidnight(from: Date): Date {
   const d = new Date(from)
@@ -230,7 +231,13 @@ export async function GET(
       campaign.channel === 'EMAIL'
         ? await prisma.sentMail.findMany({
             where: { campaignId: params.id, status: 'sent' },
-            select: { id: true },
+            select: {
+              id: true,
+              mailAccountId: true,
+              toEmail: true,
+              subject: true,
+              sentAt: true,
+            },
           })
         : []
     let openStates = new Map<string, { openedAt: string; lastOpenedAt: string; openCount: number }>()
@@ -242,15 +249,19 @@ export async function GET(
     } catch (error) {
       console.warn('[Campaign GET]', error)
     }
+    const replyStates = campaign.channel === 'EMAIL' ? await loadSentMailReplyStates(emailSentIds) : new Map()
     const hydratedRecentSent =
       campaign.channel === 'EMAIL'
         ? recentSent.map((log) => {
             const state = openStates.get(log.id)
+            const replyState = replyStates.get(log.id)
             return {
               ...log,
               openedAt: state?.openedAt || null,
               lastOpenedAt: state?.lastOpenedAt || null,
               openCount: state?.openCount || 0,
+              repliedAt: replyState?.repliedAt || null,
+              replyCount: replyState?.replyCount || 0,
             }
           })
         : recentSent
@@ -263,11 +274,18 @@ export async function GET(
               const state = openStates.get(record.id)
               return count + (state?.openCount ? 1 : 0)
             }, 0)
+            const replied = emailSentIds.reduce((count, record) => {
+              const state = replyStates.get(record.id)
+              return count + (state?.repliedAt ? 1 : 0)
+            }, 0)
             return {
               sent,
               opened,
               unopened: Math.max(0, sent - opened),
               openRate: sent > 0 ? Math.round((opened / sent) * 100) : 0,
+              replied,
+              unreplied: Math.max(0, sent - replied),
+              replyRate: sent > 0 ? Math.round((replied / sent) * 100) : 0,
             }
           })()
         : null

@@ -11,6 +11,8 @@ type StatusType =
   | 'done'
   | 'opened'
   | 'unopened'
+  | 'replied'
+  | 'awaiting reply'
   | 'gmail'
   | 'zoho'
   | 'connected'
@@ -35,6 +37,8 @@ const statusConfig: Record<string, { label: string; className: string; dot?: boo
   done: { label: 'Done', className: 'badge badge-completed' },
   opened: { label: 'Opened', className: 'badge badge-active', dot: true },
   unopened: { label: 'Not Opened', className: 'badge badge-draft' },
+  replied: { label: 'Replied', className: 'badge badge-completed', dot: true },
+  'awaiting reply': { label: 'Awaiting Reply', className: 'badge badge-draft' },
   gmail: { label: 'Gmail', className: 'badge badge-completed' },
   zoho: { label: 'Zoho', className: 'badge badge-paused' },
   connected: { label: 'Connected', className: 'badge badge-active', dot: true },

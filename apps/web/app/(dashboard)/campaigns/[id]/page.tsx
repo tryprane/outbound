@@ -68,6 +68,8 @@ interface CampaignDetail {
     openedAt?: string | null
     lastOpenedAt?: string | null
     openCount?: number
+    repliedAt?: string | null
+    replyCount?: number
     errorMessage?: string | null
     toEmail?: string
     subject?: string
@@ -81,6 +83,9 @@ interface CampaignDetail {
     opened: number
     unopened: number
     openRate: number
+    replied: number
+    unreplied: number
+    replyRate: number
   } | null
 }
 
@@ -217,6 +222,10 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
             <div className="glass-card" style={{ padding: '22px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
                 <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Sent</div>
+                  <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--text-primary)' }}>{campaign.emailOpenStats.sent}</div>
+                </div>
+                <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Opened</div>
                   <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--success)' }}>{campaign.emailOpenStats.opened}</div>
                 </div>
@@ -228,9 +237,17 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Open rate</div>
                   <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--accent)' }}>{campaign.emailOpenStats.openRate}%</div>
                 </div>
+                <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Replied</div>
+                  <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f766e' }}>{campaign.emailOpenStats.replied}</div>
+                </div>
+                <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Reply rate</div>
+                  <div style={{ fontSize: '24px', fontWeight: 700, color: '#0f766e' }}>{campaign.emailOpenStats.replyRate}%</div>
+                </div>
               </div>
               <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                Open tracking is best-effort and only counts delivered emails that load the tracking pixel.
+                Open tracking is best-effort and only counts delivered emails that load the tracking pixel. Reply tracking is inferred from synced mailbox threads.
               </div>
             </div>
           ) : null}
@@ -289,6 +306,8 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                           ? (log.openedAt ? `Opened ${formatDateTime(log.openedAt)}` : 'Not opened yet')
                           : 'Open tracking unavailable'}
                         {log.status === 'sent' && log.openCount && log.openCount > 1 ? ` | ${log.openCount} views` : ''}
+                        {log.status === 'sent' && log.repliedAt ? ` | Replied ${formatDateTime(log.repliedAt)}` : ''}
+                        {log.status === 'sent' && log.replyCount && log.replyCount > 1 ? ` | ${log.replyCount} replies` : ''}
                       </div>
                     ) : null}
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{formatDateTime(log.sentAt)}</div>
