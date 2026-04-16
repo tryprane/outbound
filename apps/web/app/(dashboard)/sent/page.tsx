@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { PaginationControls } from '@/components/ui/pagination-controls'
@@ -91,6 +92,7 @@ export default function GlobalSentMailPage() {
   const [limit, setLimit] = useState(50)
   
   const [loading, setLoading] = useState(true)
+  const [isClient, setIsClient] = useState(false)
   const [replyModal, setReplyModal] = useState<ReplyModalState | null>(null)
   const [replyLoadingId, setReplyLoadingId] = useState<string | null>(null)
   const [replyError, setReplyError] = useState<string | null>(null)
@@ -125,6 +127,10 @@ export default function GlobalSentMailPage() {
   function formatReplyTimestamp(message: ReplyMessage) {
     return formatDate(message.receivedAt || message.sentAt || message.createdAt)
   }
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   useEffect(() => {
     // Fetch dropdown options once
@@ -683,7 +689,7 @@ export default function GlobalSentMailPage() {
         </div>
       ) : null}
 
-      {replyModal ? (
+      {isClient && replyModal ? createPortal(
         <div
           onClick={() => setReplyModal(null)}
           style={{
@@ -783,7 +789,7 @@ export default function GlobalSentMailPage() {
             )}
           </div>
         </div>
-      ) : null}
+      , document.body) : null}
 
     </div>
   )
