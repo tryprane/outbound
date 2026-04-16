@@ -33,6 +33,20 @@ export type SentMailReplyState = {
   replyCount: number
 }
 
+export type SentMailReplyMessage = {
+  id: string
+  fromEmail: string | null
+  subject: string | null
+  snippet: string | null
+  sentAt: string | null
+  receivedAt: string | null
+  createdAt: string
+}
+
+export type SentMailReplyDetail = SentMailReplyState & {
+  replies: SentMailReplyMessage[]
+}
+
 function normalizeEmail(value: string | null | undefined) {
   return (value || '').trim().toLowerCase()
 }
@@ -47,6 +61,15 @@ function normalizeSubject(value: string | null | undefined) {
 
 function candidateTime(candidate: Pick<MailboxCandidate | InboundCandidate, 'sentAt' | 'receivedAt' | 'createdAt'>) {
   return candidate.sentAt || candidate.receivedAt || candidate.createdAt
+}
+
+function uniqueReplyKey(reply: SentMailReplyMessage) {
+  return [
+    reply.id,
+    reply.sentAt || '',
+    reply.receivedAt || '',
+    reply.createdAt,
+  ].join(':')
 }
 
 function chooseBestCandidate(record: SentMailReplyRecord, candidates: MailboxCandidate[]) {
@@ -77,8 +100,21 @@ function chooseBestCandidate(record: SentMailReplyRecord, candidates: MailboxCan
 }
 
 export async function loadSentMailReplyStates(records: SentMailReplyRecord[]) {
+  const details = await loadSentMailReplyDetails(records)
+  return new Map(
+    Array.from(details.entries()).map(([id, detail]) => [
+      id,
+      {
+        repliedAt: detail.repliedAt,
+        replyCount: detail.replyCount,
+      },
+    ])
+  )
+}
+
+export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
   const sentRecords = records.filter((record) => record.sentAt && record.toEmail && record.subject)
-  if (sentRecords.length === 0) return new Map<string, SentMailReplyState>()
+  if (sentRecords.length === 0) return new Map<string, SentMailReplyDetail>()
 
   const accountIds = Array.from(new Set(sentRecords.map((record) => record.mailAccountId)))
   const recipientEmails = Array.from(new Set(sentRecords.map((record) => normalizeEmail(record.toEmail)).filter(Boolean)))
@@ -129,8 +165,8 @@ export async function loadSentMailReplyStates(records: SentMailReplyRecord[]) {
     if (match.providerThreadId) providerThreadIds.add(match.providerThreadId)
   }
 
-  if (matchedBySentMail.size === 0) return new Map<string, SentMailReplyState>()
-  if (mailboxThreadIds.size === 0 && providerThreadIds.size === 0) return new Map<string, SentMailReplyState>()
+  if (matchedBySentMail.size === 0) return new Map<string, SentMailReplyDetail>()
+  if (mailboxThreadIds.size === 0 && providerThreadIds.size === 0) return new Map<string, SentMailReplyDetail>()
 
   const inboundMessages = await prisma.mailboxMessage.findMany({
     where: {
@@ -142,15 +178,19 @@ export async function loadSentMailReplyStates(records: SentMailReplyRecord[]) {
       ],
     },
     select: {
+      id: true,
       mailboxThreadId: true,
       providerThreadId: true,
+      fromEmail: true,
+      subject: true,
+      snippet: true,
       sentAt: true,
       receivedAt: true,
       createdAt: true,
     },
   })
 
-  const inboundByThread = new Map<string, InboundCandidate[]>()
+  const inboundByThread = new Map<string, (InboundCandidate & SentMailReplyMessage)[]>()
   for (const inbound of inboundMessages) {
     const keys = [inbound.mailboxThreadId, inbound.providerThreadId].filter(Boolean) as string[]
     for (const key of keys) {
@@ -160,21 +200,37 @@ export async function loadSentMailReplyStates(records: SentMailReplyRecord[]) {
     }
   }
 
-  const replyStates = new Map<string, SentMailReplyState>()
+  const replyStates = new Map<string, SentMailReplyDetail>()
   for (const record of sentRecords) {
     const match = matchedBySentMail.get(record.id)
     if (!match) continue
 
     const threadKeys = [match.mailboxThreadId, match.providerThreadId].filter(Boolean) as string[]
-    const relevantReplies = threadKeys.flatMap((key) => inboundByThread.get(key) || [])
-    const replyTimes = relevantReplies
-      .map((reply) => candidateTime(reply))
-      .filter((time, index, array) => time.getTime() > record.sentAt.getTime() && array.findIndex((entry) => entry.getTime() === time.getTime()) === index)
-      .sort((a, b) => a.getTime() - b.getTime())
+    const relevantReplies = threadKeys
+      .flatMap((key) => inboundByThread.get(key) || [])
+      .filter((reply) => candidateTime(reply).getTime() > record.sentAt.getTime())
+      .sort((a, b) => candidateTime(a).getTime() - candidateTime(b).getTime())
+
+    const seenReplies = new Set<string>()
+    const replies = relevantReplies.filter((reply) => {
+      const key = uniqueReplyKey(reply)
+      if (seenReplies.has(key)) return false
+      seenReplies.add(key)
+      return true
+    })
 
     replyStates.set(record.id, {
-      repliedAt: replyTimes[0]?.toISOString() || null,
-      replyCount: replyTimes.length,
+      repliedAt: replies[0] ? candidateTime(replies[0]).toISOString() : null,
+      replyCount: replies.length,
+      replies: replies.map((reply) => ({
+        id: reply.id,
+        fromEmail: reply.fromEmail,
+        subject: reply.subject,
+        snippet: reply.snippet,
+        sentAt: reply.sentAt?.toISOString() || null,
+        receivedAt: reply.receivedAt?.toISOString() || null,
+        createdAt: reply.createdAt.toISOString(),
+      })),
     })
   }
 

@@ -478,6 +478,52 @@ export async function GET(request: NextRequest) {
       ])
       return NextResponse.json(buildPaginatedResult(items, total, pagination))
     }
+    if (resource === 'sent-filter-options') {
+      const pagination = parsePaginationParams(request, { defaultLimit: 100, maxLimit: 200 })
+      const [items, total] = await Promise.all([
+        prisma.mailAccount.findMany({
+          orderBy: { createdAt: 'asc' },
+          skip: pagination.skip,
+          take: pagination.limit,
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            dailyLimit: true,
+            sentToday: true,
+            isActive: true,
+            warmupStatus: true,
+            mailboxSyncStatus: true,
+          },
+        }),
+        prisma.mailAccount.count(),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
+    }
+    if (resource === 'sent-progress') {
+      const pagination = parsePaginationParams(request, { defaultLimit: 100, maxLimit: 200 })
+      const [items, total] = await Promise.all([
+        prisma.mailAccount.findMany({
+          orderBy: { createdAt: 'asc' },
+          skip: pagination.skip,
+          take: pagination.limit,
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            dailyLimit: true,
+            sentToday: true,
+            isActive: true,
+            warmupStatus: true,
+            mailboxSyncStatus: true,
+            mailboxHealthScore: true,
+            mailboxHealthStatus: true,
+          },
+        }),
+        prisma.mailAccount.count(),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
+    }
 
     const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
     const [accounts, total] = await Promise.all([
