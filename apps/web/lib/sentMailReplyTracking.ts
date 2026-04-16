@@ -28,6 +28,13 @@ type InboundCandidate = {
   createdAt: Date
 }
 
+type RawInboundReply = InboundCandidate & {
+  id: string
+  fromEmail: string | null
+  subject: string | null
+  snippet: string | null
+}
+
 export type SentMailReplyState = {
   repliedAt: string | null
   replyCount: number
@@ -63,12 +70,12 @@ function candidateTime(candidate: Pick<MailboxCandidate | InboundCandidate, 'sen
   return candidate.sentAt || candidate.receivedAt || candidate.createdAt
 }
 
-function uniqueReplyKey(reply: SentMailReplyMessage) {
+function uniqueReplyKey(reply: RawInboundReply) {
   return [
     reply.id,
-    reply.sentAt || '',
-    reply.receivedAt || '',
-    reply.createdAt,
+    reply.sentAt?.toISOString() || '',
+    reply.receivedAt?.toISOString() || '',
+    reply.createdAt.toISOString(),
   ].join(':')
 }
 
@@ -190,7 +197,7 @@ export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
     },
   })
 
-  const inboundByThread = new Map<string, (InboundCandidate & SentMailReplyMessage)[]>()
+  const inboundByThread = new Map<string, RawInboundReply[]>()
   for (const inbound of inboundMessages) {
     const keys = [inbound.mailboxThreadId, inbound.providerThreadId].filter(Boolean) as string[]
     for (const key of keys) {
