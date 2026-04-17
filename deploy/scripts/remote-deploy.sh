@@ -46,7 +46,7 @@ require_var ZOHO_CLIENT_SECRET
 require_var GEMINI_API_KEY
 
 REPLY_ANALYSIS_HOST_IP="${REPLY_ANALYSIS_HOST_IP:-$(hostname -I | awk '{print $1}')}"
-REPLY_ANALYSIS_BASE_URL="${REPLY_ANALYSIS_BASE_URL:-http://${REPLY_ANALYSIS_HOST_IP}:8091}"
+REPLY_ANALYSIS_BASE_URL="${REPLY_ANALYSIS_BASE_URL:-http://${REPLY_ANALYSIS_HOST_IP}:11434}"
 
 INGRESS_HOST="$(printf '%s' "$PUBLIC_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
 if [[ -z "$INGRESS_HOST" ]]; then
@@ -90,7 +90,7 @@ kubectl -n "$NAMESPACE" create secret generic outbound-env \
   --from-literal=ZOHO_MAIL_API_BASE_URL="${ZOHO_MAIL_API_BASE_URL:-https://mail.zoho.in/api}" \
   --from-literal=GEMINI_API_KEY="$GEMINI_API_KEY" \
   --from-literal=REPLY_ANALYSIS_BASE_URL="$REPLY_ANALYSIS_BASE_URL" \
-  --from-literal=REPLY_ANALYSIS_MODEL="${REPLY_ANALYSIS_MODEL:-gemma-2-2b-it}" \
+  --from-literal=REPLY_ANALYSIS_MODEL="${REPLY_ANALYSIS_MODEL:-gemma2:2b}" \
   --from-literal=REPLY_ANALYSIS_TIMEOUT_MS="${REPLY_ANALYSIS_TIMEOUT_MS:-30000}" \
   --from-literal=REPLY_ANALYSIS_MAX_TOKENS="${REPLY_ANALYSIS_MAX_TOKENS:-220}" \
   --from-literal=NODE_ENV=production \

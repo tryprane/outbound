@@ -6,66 +6,32 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-LLM_ROOT="${LLM_ROOT:-/opt/reply-analysis}"
-BIN_DIR="$LLM_ROOT/bin"
-MODEL_DIR="$LLM_ROOT/models"
-TMP_DIR="$(mktemp -d /tmp/reply-analysis-XXXXXX)"
-SERVICE_FILE="/etc/systemd/system/outbound-reply-analysis.service"
-LLAMA_RELEASE_URL="${LLAMA_RELEASE_URL:-https://github.com/ggml-org/llama.cpp/releases/download/b8827/llama-b8827-bin-ubuntu-x64.tar.gz}"
-MODEL_URL="${MODEL_URL:-https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=true}"
-MODEL_FILE="$MODEL_DIR/gemma-2-2b-it-Q4_K_M.gguf"
-
-cleanup() {
-  rm -rf "$TMP_DIR"
-}
-trap cleanup EXIT
+OLLAMA_HOST_VALUE="${OLLAMA_HOST_VALUE:-0.0.0.0:11434}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-gemma2:2b}"
+OVERRIDE_DIR="/etc/systemd/system/ollama.service.d"
 
 apt-get update
-apt-get install -y curl tar
+apt-get install -y curl
 
-mkdir -p "$BIN_DIR" "$MODEL_DIR"
+if systemctl list-unit-files | grep -q '^outbound-reply-analysis.service'; then
+  systemctl disable --now outbound-reply-analysis.service || true
+  rm -f /etc/systemd/system/outbound-reply-analysis.service
+fi
 
-echo "[LLM] Downloading llama.cpp runtime..."
-curl -L "$LLAMA_RELEASE_URL" -o "$TMP_DIR/llama.tar.gz"
-tar -xzf "$TMP_DIR/llama.tar.gz" -C "$BIN_DIR" --strip-components=1
-chmod +x "$BIN_DIR/llama-server" || true
+echo "[LLM] Installing Ollama..."
+curl -fsSL https://ollama.com/install.sh | sh
 
-echo "[LLM] Downloading Gemma model..."
-curl -L "$MODEL_URL" -o "$MODEL_FILE"
-
-cat > "$LLM_ROOT/run-server.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-exec /opt/reply-analysis/bin/llama-server \
-  -m /opt/reply-analysis/models/gemma-2-2b-it-Q4_K_M.gguf \
-  -c 2048 \
-  -t 2 \
-  -ngl 0 \
-  --host 0.0.0.0 \
-  --port 8091
-EOF
-
-chmod +x "$LLM_ROOT/run-server.sh"
-
-cat > "$SERVICE_FILE" <<EOF
-[Unit]
-Description=Outreach reply analysis LLM
-After=network-online.target
-Wants=network-online.target
-
+mkdir -p "$OVERRIDE_DIR"
+cat > "$OVERRIDE_DIR/override.conf" <<EOF
 [Service]
-Type=simple
-User=outreach
-WorkingDirectory=$LLM_ROOT
-ExecStart=$LLM_ROOT/run-server.sh
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
+Environment="OLLAMA_HOST=${OLLAMA_HOST_VALUE}"
 EOF
 
 systemctl daemon-reload
-systemctl enable outbound-reply-analysis.service
-systemctl restart outbound-reply-analysis.service
-systemctl status outbound-reply-analysis.service --no-pager
+systemctl enable ollama
+systemctl restart ollama
+systemctl status ollama --no-pager
+
+echo "[LLM] Pulling model ${OLLAMA_MODEL}..."
+OLLAMA_HOST="http://127.0.0.1:11434" ollama pull "$OLLAMA_MODEL"
+OLLAMA_HOST="http://127.0.0.1:11434" ollama list
