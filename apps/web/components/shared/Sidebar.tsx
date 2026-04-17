@@ -11,6 +11,7 @@ import {
   KeySquare,
   Mail,
   MessageSquareText,
+  MessagesSquare,
   Send,
   Settings,
 } from 'lucide-react'
@@ -36,6 +37,7 @@ const navGroups = [
       { label: 'Email Warmup', href: '/warmup', icon: Flame },
       { label: 'Inbox', href: '/inbox', icon: Inbox },
       { label: 'Sent Mail', href: '/sent', icon: Send },
+      { label: 'Responses', href: '/responses', icon: MessagesSquare },
     ],
   },
   {

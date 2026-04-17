@@ -48,6 +48,12 @@ Optional tuning overrides:
 - `WORKER_IDLE_CLOSE_MS`
 - `CAMPAIGN_WORKER_CONCURRENCY`
 - `MAIL_WORKER_CONCURRENCY`
+- `REPLY_ANALYSIS_HOST_IP`
+- `REPLY_ANALYSIS_BASE_URL`
+- `REPLY_ANALYSIS_MODEL`
+- `REPLY_ANALYSIS_TIMEOUT_MS`
+- `REPLY_ANALYSIS_MAX_TOKENS`
+- `REPLY_ANALYSIS_WORKER_CONCURRENCY`
 - `SCRAPE_WORKER_CONCURRENCY`
 - `WHATSAPP_WORKER_CONCURRENCY`
 - `WARMUP_WORKER_CONCURRENCY`
@@ -72,6 +78,9 @@ Optional tuning overrides:
      ```
 4. Set your production URL in `PUBLIC_URL`.
 5. Run `deploy/scripts/remote-deploy.sh` once to create the namespace, secrets, and workloads.
+6. Install the reply-analysis model service on the VPS:
+   - Run `sudo bash deploy/scripts/install-reply-analysis-llm.sh`
+   - The web and worker pods will use `REPLY_ANALYSIS_BASE_URL` to call that service for opened-reply insights.
 
 ## GitHub Actions
 

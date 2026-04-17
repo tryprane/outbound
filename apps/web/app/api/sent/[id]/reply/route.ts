@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { queueReplyAnalysisJobs } from '@/lib/replyAnalysisQueue'
 import { loadSentMailReplyDetails } from '@/lib/sentMailReplyTracking'
 
 export const dynamic = 'force-dynamic'
@@ -44,6 +45,29 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     const replyDetails = await loadSentMailReplyDetails([sentMail])
     const detail = replyDetails.get(sentMail.id)
+
+    const replyIds = detail?.replies?.map((reply) => reply.id).filter(Boolean) || []
+    if (replyIds.length > 0) {
+      const now = new Date()
+      await prisma.mailboxMessage.updateMany({
+        where: {
+          id: { in: replyIds },
+          direction: 'inbound',
+          isWarmup: false,
+          openedAt: null,
+        },
+        data: {
+          openedAt: now,
+          isRead: true,
+        },
+      })
+      await queueReplyAnalysisJobs(
+        replyIds.map((mailboxMessageId) => ({
+          mailboxMessageId,
+          reason: 'reply-thread-view',
+        }))
+      )
+    }
 
     return NextResponse.json({
       sentMailId: sentMail.id,

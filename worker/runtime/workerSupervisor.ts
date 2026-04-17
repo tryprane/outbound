@@ -4,6 +4,7 @@ import { campaignQueue } from '~/queues/campaignQueue'
 import { mailQueue } from '~/queues/mailQueue'
 import { mailboxInteractionQueue } from '~/queues/mailboxInteractionQueue'
 import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
+import { replyAnalysisQueue } from '~/queues/replyAnalysisQueue'
 import { scrapeQueue } from '~/queues/scrapeQueue'
 import { warmupQueue } from '~/queues/warmupQueue'
 import { whatsappQueue } from '~/queues/whatsappQueue'
@@ -13,6 +14,7 @@ import { startCampaignWorker } from '~/processors/campaignProcessor'
 import { startMailWorker } from '~/processors/mailProcessor'
 import { startMailboxInteractionWorker } from '~/processors/mailboxInteractionProcessor'
 import { startMailboxSyncWorker } from '~/processors/mailboxSyncProcessor'
+import { startReplyAnalysisWorker } from '~/processors/replyAnalysisProcessor'
 import { startScrapeWorker } from '~/processors/scrapeProcessor'
 import { startWarmupWorker } from '~/processors/warmupProcessor'
 import { startWhatsAppWorker } from '~/processors/whatsappProcessor'
@@ -22,6 +24,7 @@ type QueueName =
   | 'apiDispatch'
   | 'campaign'
   | 'mail'
+  | 'replyAnalysis'
   | 'mailboxInteraction'
   | 'mailboxSync'
   | 'scrape'
@@ -51,6 +54,7 @@ const states: Record<QueueName, ManagedWorker> = {
   apiDispatch: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   campaign: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   mail: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
+  replyAnalysis: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   mailboxInteraction: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   mailboxSync: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
   scrape: { worker: null, lastActiveAt: Date.now(), lastScheduledAt: 0 },
@@ -80,6 +84,13 @@ const queues: QueueState[] = [
     idleCloseMs: DEFAULT_IDLE_CLOSE_MS,
     getCounts: async () => mailQueue.getJobCounts('waiting', 'active', 'delayed'),
     start: startMailWorker,
+  },
+  {
+    queueName: 'replyAnalysis',
+    priority: 89,
+    idleCloseMs: DEFAULT_IDLE_CLOSE_MS,
+    getCounts: async () => replyAnalysisQueue.getJobCounts('waiting', 'active', 'delayed'),
+    start: startReplyAnalysisWorker,
   },
   {
     queueName: 'mailboxInteraction',
@@ -240,6 +251,7 @@ export async function stopWorkerSupervisor() {
     stopWorker('apiDispatch'),
     stopWorker('campaign'),
     stopWorker('mail'),
+    stopWorker('replyAnalysis'),
     stopWorker('mailboxInteraction'),
     stopWorker('mailboxSync'),
     stopWorker('whatsapp'),
