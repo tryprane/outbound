@@ -468,6 +468,17 @@ model MailboxMessage {
   openedAt          DateTime?
   repliedAt         DateTime?
   rescuedAt         DateTime?
+  analysisStatus    String            @default("idle") // idle|pending|complete|error
+  analysisRequestedAt DateTime?
+  analyzedAt        DateTime?
+  analysisModel     String?
+  analysisLabel     String?
+  analysisShouldReply Boolean?
+  analysisPriority  String?
+  analysisSummary   String?           @db.Text
+  analysisReason    String?           @db.Text
+  analysisError     String?           @db.Text
+  analysisRaw       Json?
   metadata          Json?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -479,6 +490,8 @@ model MailboxMessage {
   @@index([mailAccountId, receivedAt])
   @@index([mailAccountId, folderKind, receivedAt])
   @@index([mailAccountId, isWarmup, receivedAt])
+  @@index([openedAt, analysisStatus, receivedAt])
+  @@index([analysisLabel, analysisPriority, analyzedAt])
 }
 
 model WarmupHealthSnapshot {

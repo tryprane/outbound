@@ -2,6 +2,7 @@ type WorkerLimitName =
   | 'apiDispatch'
   | 'campaign'
   | 'mail'
+  | 'replyAnalysis'
   | 'mailboxInteraction'
   | 'mailboxSync'
   | 'scrape'
@@ -22,6 +23,8 @@ export function getWorkerConcurrency(name: WorkerLimitName): number {
       return readPositiveInt(process.env.CAMPAIGN_WORKER_CONCURRENCY, 1)
     case 'mail':
       return readPositiveInt(process.env.MAIL_WORKER_CONCURRENCY, 1)
+    case 'replyAnalysis':
+      return readPositiveInt(process.env.REPLY_ANALYSIS_WORKER_CONCURRENCY, 1)
     case 'mailboxInteraction':
       return readPositiveInt(process.env.MAILBOX_INTERACTION_WORKER_CONCURRENCY, 1)
     case 'mailboxSync':

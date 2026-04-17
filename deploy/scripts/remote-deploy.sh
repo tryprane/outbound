@@ -45,6 +45,9 @@ require_var ZOHO_CLIENT_ID
 require_var ZOHO_CLIENT_SECRET
 require_var GEMINI_API_KEY
 
+REPLY_ANALYSIS_HOST_IP="${REPLY_ANALYSIS_HOST_IP:-$(hostname -I | awk '{print $1}')}"
+REPLY_ANALYSIS_BASE_URL="${REPLY_ANALYSIS_BASE_URL:-http://${REPLY_ANALYSIS_HOST_IP}:8091}"
+
 INGRESS_HOST="$(printf '%s' "$PUBLIC_URL" | sed -E 's#^[a-zA-Z]+://##; s#/.*$##')"
 if [[ -z "$INGRESS_HOST" ]]; then
   echo "Could not derive ingress host from PUBLIC_URL=$PUBLIC_URL" >&2
@@ -86,12 +89,17 @@ kubectl -n "$NAMESPACE" create secret generic outbound-env \
   --from-literal=ZOHO_ACCOUNTS_BASE_URL="${ZOHO_ACCOUNTS_BASE_URL:-https://accounts.zoho.in}" \
   --from-literal=ZOHO_MAIL_API_BASE_URL="${ZOHO_MAIL_API_BASE_URL:-https://mail.zoho.in/api}" \
   --from-literal=GEMINI_API_KEY="$GEMINI_API_KEY" \
+  --from-literal=REPLY_ANALYSIS_BASE_URL="$REPLY_ANALYSIS_BASE_URL" \
+  --from-literal=REPLY_ANALYSIS_MODEL="${REPLY_ANALYSIS_MODEL:-gemma-2-2b-it}" \
+  --from-literal=REPLY_ANALYSIS_TIMEOUT_MS="${REPLY_ANALYSIS_TIMEOUT_MS:-30000}" \
+  --from-literal=REPLY_ANALYSIS_MAX_TOKENS="${REPLY_ANALYSIS_MAX_TOKENS:-220}" \
   --from-literal=NODE_ENV=production \
   --from-literal=WORKER_GLOBAL_ACTIVE_LIMIT="${WORKER_GLOBAL_ACTIVE_LIMIT:-4}" \
   --from-literal=WORKER_SWEEP_INTERVAL_MS="${WORKER_SWEEP_INTERVAL_MS:-5000}" \
   --from-literal=WORKER_IDLE_CLOSE_MS="${WORKER_IDLE_CLOSE_MS:-120000}" \
   --from-literal=CAMPAIGN_WORKER_CONCURRENCY="${CAMPAIGN_WORKER_CONCURRENCY:-1}" \
   --from-literal=MAIL_WORKER_CONCURRENCY="${MAIL_WORKER_CONCURRENCY:-1}" \
+  --from-literal=REPLY_ANALYSIS_WORKER_CONCURRENCY="${REPLY_ANALYSIS_WORKER_CONCURRENCY:-1}" \
   --from-literal=SCRAPE_WORKER_CONCURRENCY="${SCRAPE_WORKER_CONCURRENCY:-1}" \
   --from-literal=WHATSAPP_WORKER_CONCURRENCY="${WHATSAPP_WORKER_CONCURRENCY:-1}" \
   --from-literal=WARMUP_WORKER_CONCURRENCY="${WARMUP_WORKER_CONCURRENCY:-1}" \

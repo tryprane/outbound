@@ -5,6 +5,7 @@ import { getMailboxSyncQueue } from '@/lib/mailboxSyncQueue'
 import { clearUnifiedInboxData, getUnifiedInboxRetention } from '@/lib/inboxCleanup'
 import { markMailboxMessageAsRead, rescueMailboxMessageToInbox, replyToMailboxMessage } from '@/lib/mailboxActions'
 import { buildPaginatedResult, parsePaginationParams } from '@/lib/pagination'
+import { queueReplyAnalysisJobs } from '@/lib/replyAnalysisQueue'
 import { getWhatsAppQueue } from '@/lib/whatsappQueue'
 
 export const dynamic = 'force-dynamic'
@@ -327,6 +328,14 @@ export async function PATCH(request: NextRequest) {
           openedAt: message.openedAt ?? new Date(),
         },
       })
+      if (message.direction === 'inbound' && !message.isWarmup) {
+        await queueReplyAnalysisJobs([
+          {
+            mailboxMessageId: message.id,
+            reason: 'opened',
+          },
+        ])
+      }
       return NextResponse.json({ success: true })
     }
 
@@ -343,6 +352,14 @@ export async function PATCH(request: NextRequest) {
           openedAt: message.openedAt ?? new Date(),
         },
       })
+      if (message.direction === 'inbound' && !message.isWarmup) {
+        await queueReplyAnalysisJobs([
+          {
+            mailboxMessageId: message.id,
+            reason: 'opened',
+          },
+        ])
+      }
       await getMailboxSyncQueue().add(
         'sync-mailbox' as never,
         { mailAccountId: account.id, reason: 'manual' } as never,
