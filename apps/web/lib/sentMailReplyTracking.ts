@@ -30,6 +30,7 @@ type InboundCandidate = {
 
 type RawInboundReply = InboundCandidate & {
   id: string
+  mailAccountId: string
   fromEmail: string | null
   subject: string | null
   snippet: string | null
@@ -63,7 +64,20 @@ function normalizeSubject(value: string | null | undefined) {
     .trim()
     .replace(/\s+/g, ' ')
     .replace(/^subject:\s*/i, '')
+    .replace(/^(?:(?:re|fw|fwd)\s*:\s*)+/i, '')
     .toLowerCase()
+}
+
+function subjectsLookRelated(expected: string | null | undefined, actual: string | null | undefined) {
+  const normalizedExpected = normalizeSubject(expected)
+  const normalizedActual = normalizeSubject(actual)
+  if (!normalizedExpected || !normalizedActual) return false
+
+  return (
+    normalizedExpected === normalizedActual ||
+    normalizedExpected.includes(normalizedActual) ||
+    normalizedActual.includes(normalizedExpected)
+  )
 }
 
 function candidateTime(candidate: Pick<MailboxCandidate | InboundCandidate, 'sentAt' | 'receivedAt' | 'createdAt'>) {
@@ -172,20 +186,32 @@ export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
     if (match.providerThreadId) providerThreadIds.add(match.providerThreadId)
   }
 
-  if (matchedBySentMail.size === 0) return new Map<string, SentMailReplyDetail>()
-  if (mailboxThreadIds.size === 0 && providerThreadIds.size === 0) return new Map<string, SentMailReplyDetail>()
-
   const inboundMessages = await prisma.mailboxMessage.findMany({
     where: {
       direction: 'inbound',
       mailAccountId: { in: accountIds },
-      OR: [
-        ...(mailboxThreadIds.size > 0 ? [{ mailboxThreadId: { in: Array.from(mailboxThreadIds) } }] : []),
-        ...(providerThreadIds.size > 0 ? [{ providerThreadId: { in: Array.from(providerThreadIds) } }] : []),
+      ...(mailboxThreadIds.size > 0 || providerThreadIds.size > 0 || recipientEmails.length > 0
+        ? {
+            OR: [
+              ...(mailboxThreadIds.size > 0 ? [{ mailboxThreadId: { in: Array.from(mailboxThreadIds) } }] : []),
+              ...(providerThreadIds.size > 0 ? [{ providerThreadId: { in: Array.from(providerThreadIds) } }] : []),
+              ...(recipientEmails.length > 0 ? [{ fromEmail: { in: recipientEmails } }] : []),
+            ],
+          }
+        : {}),
+      AND: [
+        {
+          OR: [
+            { sentAt: { gte: windowStart, lte: windowEnd } },
+            { receivedAt: { gte: windowStart, lte: windowEnd } },
+            { createdAt: { gte: windowStart, lte: windowEnd } },
+          ],
+        },
       ],
     },
     select: {
       id: true,
+      mailAccountId: true,
       mailboxThreadId: true,
       providerThreadId: true,
       fromEmail: true,
@@ -198,6 +224,7 @@ export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
   })
 
   const inboundByThread = new Map<string, RawInboundReply[]>()
+  const inboundByAccountAndSender = new Map<string, RawInboundReply[]>()
   for (const inbound of inboundMessages) {
     const keys = [inbound.mailboxThreadId, inbound.providerThreadId].filter(Boolean) as string[]
     for (const key of keys) {
@@ -205,17 +232,25 @@ export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
       list.push(inbound)
       inboundByThread.set(key, list)
     }
+
+    const senderKey = `${inbound.mailAccountId}:${normalizeEmail(inbound.fromEmail)}`
+    const senderList = inboundByAccountAndSender.get(senderKey) || []
+    senderList.push(inbound)
+    inboundByAccountAndSender.set(senderKey, senderList)
   }
 
   const replyStates = new Map<string, SentMailReplyDetail>()
   for (const record of sentRecords) {
     const match = matchedBySentMail.get(record.id)
-    if (!match) continue
 
-    const threadKeys = [match.mailboxThreadId, match.providerThreadId].filter(Boolean) as string[]
-    const relevantReplies = threadKeys
+    const threadKeys = match ? ([match.mailboxThreadId, match.providerThreadId].filter(Boolean) as string[]) : []
+    const threadedReplies = threadKeys
       .flatMap((key) => inboundByThread.get(key) || [])
       .filter((reply) => candidateTime(reply).getTime() > record.sentAt.getTime())
+    const fallbackReplies = (inboundByAccountAndSender.get(`${record.mailAccountId}:${normalizeEmail(record.toEmail)}`) || [])
+      .filter((reply) => candidateTime(reply).getTime() > record.sentAt.getTime())
+      .filter((reply) => subjectsLookRelated(record.subject, reply.subject))
+    const relevantReplies = (threadedReplies.length > 0 ? threadedReplies : fallbackReplies)
       .sort((a, b) => candidateTime(a).getTime() - candidateTime(b).getTime())
 
     const seenReplies = new Set<string>()

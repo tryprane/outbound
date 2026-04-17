@@ -32,6 +32,17 @@ const DEFAULT_MODEL = process.env.REPLY_ANALYSIS_MODEL?.trim() || 'gemma2:2b'
 const BASE_URL = (process.env.REPLY_ANALYSIS_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '')
 const TIMEOUT_MS = Number.parseInt(process.env.REPLY_ANALYSIS_TIMEOUT_MS ?? '30000', 10)
 const MAX_TOKENS = Number.parseInt(process.env.REPLY_ANALYSIS_MAX_TOKENS ?? '220', 10)
+const VALID_LABELS = new Set<ReplyAnalysisLabel>([
+  'interested',
+  'meeting_request',
+  'follow_up_later',
+  'wrong_person',
+  'not_interested',
+  'unsubscribe',
+  'auto_reply',
+  'generic',
+])
+const VALID_PRIORITIES = new Set<ReplyAnalysisPriority>(['high', 'medium', 'low'])
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, ' ').trim()
@@ -62,6 +73,34 @@ function keywordMatch(text: string, patterns: RegExp[]) {
   return patterns.some((pattern) => pattern.test(text))
 }
 
+function normalizeLabel(value: string): ReplyAnalysisLabel | null {
+  const normalized = normalizeText(value).replace(/[\s-]+/g, '_')
+  if (VALID_LABELS.has(normalized as ReplyAnalysisLabel)) {
+    return normalized as ReplyAnalysisLabel
+  }
+
+  if (keywordMatch(normalized, [/meeting/i, /call/i, /demo/i, /schedule/i])) return 'meeting_request'
+  if (keywordMatch(normalized, [/interested/i, /pricing/i, /details/i, /buy/i])) return 'interested'
+  if (keywordMatch(normalized, [/follow/i, /later/i, /later_response/i])) return 'follow_up_later'
+  if (keywordMatch(normalized, [/wrong_person/i, /not_the_right_person/i])) return 'wrong_person'
+  if (keywordMatch(normalized, [/unsubscribe/i, /remove/i, /stop/i])) return 'unsubscribe'
+  if (keywordMatch(normalized, [/auto/i, /out_of_office/i, /delivery_failure/i, /bounce/i])) return 'auto_reply'
+  if (keywordMatch(normalized, [/not_interested/i, /decline/i])) return 'not_interested'
+  if (keywordMatch(normalized, [/generic/i, /acknowledg/i])) return 'generic'
+  return null
+}
+
+function normalizePriority(value: string): ReplyAnalysisPriority | null {
+  const normalized = normalizeText(value)
+  if (VALID_PRIORITIES.has(normalized as ReplyAnalysisPriority)) {
+    return normalized as ReplyAnalysisPriority
+  }
+  if (normalized.includes('urgent') || normalized.includes('high')) return 'high'
+  if (normalized.includes('medium') || normalized.includes('normal')) return 'medium'
+  if (normalized.includes('low')) return 'low'
+  return null
+}
+
 function runRules(text: string): ReplyAnalysisResult | null {
   if (keywordMatch(text, [/out of office/i, /automatic reply/i, /auto(?:matic)? response/i, /limited access/i, /ticket was created/i, /vacation/i])) {
     return {
@@ -70,6 +109,18 @@ function runRules(text: string): ReplyAnalysisResult | null {
       priority: 'low',
       summary: 'Automatic response received',
       reason: 'The reply looks like an out-of-office or automated acknowledgement.',
+      model: RULE_MODEL,
+      raw: { source: 'rules' },
+    }
+  }
+
+  if (keywordMatch(text, [/delivery status notification/i, /mailer-daemon/i, /address not found/i, /recipient address rejected/i, /delivery failed/i, /mail delivery subsystem/i])) {
+    return {
+      label: 'auto_reply',
+      shouldReply: false,
+      priority: 'low',
+      summary: 'Delivery failure notice received',
+      reason: 'The reply is a bounce or system-generated delivery failure notification.',
       model: RULE_MODEL,
       raw: { source: 'rules' },
     }
@@ -207,9 +258,9 @@ Reply text: ${text}`
     }
     const parsed = JSON.parse(content) as Record<string, unknown>
 
-    const label = String(parsed.label || '').trim() as ReplyAnalysisLabel
+    const label = normalizeLabel(String(parsed.label || ''))
     const shouldReply = Boolean(parsed.shouldReply)
-    const priority = String(parsed.priority || '').trim() as ReplyAnalysisPriority
+    const priority = normalizePriority(String(parsed.priority || ''))
 
     if (!label || !priority) {
       throw new Error('Incomplete analysis payload')

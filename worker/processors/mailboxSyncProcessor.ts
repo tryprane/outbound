@@ -14,6 +14,8 @@ const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox' //
 const GMAIL_PERMISSION_SKIP_MESSAGE = 'Reconnect Gmail account to grant mailbox sync permissions'
 const ZOHO_AUTH_SKIP_MESSAGE = 'Reconnect Zoho account to restore mailbox API access'
 const ZOHO_AUTH_RETRY_AFTER_MS = 6 * 60 * 60 * 1000 // 6 hours
+const MAILBOX_SYNC_LOOKBACK_DAYS = 14
+const MAILBOX_SYNC_LIMIT_PER_FOLDER = 100
 
 async function resolveThread(mailAccountId: string, message: MailboxMessageRecord) {
   const providerThreadId = message.providerThreadId || message.messageIdHeader || message.providerMessageId
@@ -178,7 +180,10 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
 
   try {
     const provider = getMailboxProvider(account)
-    const messages = await provider.listRecentMessages({ days: 7, limitPerFolder: 25 })
+    const messages = await provider.listRecentMessages({
+      days: MAILBOX_SYNC_LOOKBACK_DAYS,
+      limitPerFolder: MAILBOX_SYNC_LIMIT_PER_FOLDER,
+    })
 
     for (const message of messages) {
       const thread = await resolveThread(account.id, message)

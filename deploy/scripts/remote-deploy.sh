@@ -91,7 +91,7 @@ kubectl -n "$NAMESPACE" create secret generic outbound-env \
   --from-literal=GEMINI_API_KEY="$GEMINI_API_KEY" \
   --from-literal=REPLY_ANALYSIS_BASE_URL="$REPLY_ANALYSIS_BASE_URL" \
   --from-literal=REPLY_ANALYSIS_MODEL="${REPLY_ANALYSIS_MODEL:-gemma2:2b}" \
-  --from-literal=REPLY_ANALYSIS_TIMEOUT_MS="${REPLY_ANALYSIS_TIMEOUT_MS:-30000}" \
+  --from-literal=REPLY_ANALYSIS_TIMEOUT_MS="${REPLY_ANALYSIS_TIMEOUT_MS:-300000}" \
   --from-literal=REPLY_ANALYSIS_MAX_TOKENS="${REPLY_ANALYSIS_MAX_TOKENS:-220}" \
   --from-literal=NODE_ENV=production \
   --from-literal=WORKER_GLOBAL_ACTIVE_LIMIT="${WORKER_GLOBAL_ACTIVE_LIMIT:-4}" \
