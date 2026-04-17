@@ -11,7 +11,7 @@ OLLAMA_MODEL="${OLLAMA_MODEL:-gemma2:2b}"
 OVERRIDE_DIR="/etc/systemd/system/ollama.service.d"
 
 apt-get update
-apt-get install -y curl
+apt-get install -y curl zstd
 
 if systemctl list-unit-files | grep -q '^outbound-reply-analysis.service'; then
   systemctl disable --now outbound-reply-analysis.service || true

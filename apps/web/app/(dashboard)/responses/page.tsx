@@ -296,7 +296,7 @@ export default function ResponsesPage() {
                       Reply from {item.fromEmail || 'Unknown sender'} to {item.toEmail || item.mailAccount.email}
                     </div>
                     <div className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                      Opened {formatDate(item.openedAt)} • Received {formatDate(item.receivedAt)} • Mailbox {item.mailAccount.email}
+                      Opened {formatDate(item.openedAt)} | Received {formatDate(item.receivedAt)} | Mailbox {item.mailAccount.email}
                     </div>
                   </div>
                   <div className="flex flex-wrap content-start gap-2">

@@ -29,7 +29,7 @@ type AnalyzeReplyOptions = {
 
 const RULE_MODEL = 'rules'
 const DEFAULT_MODEL = process.env.REPLY_ANALYSIS_MODEL?.trim() || 'gemma2:2b'
-const BASE_URL = (process.env.REPLY_ANALYSIS_BASE_URL || 'http://127.0.0.1:8091').replace(/\/+$/, '')
+const BASE_URL = (process.env.REPLY_ANALYSIS_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '')
 const TIMEOUT_MS = Number.parseInt(process.env.REPLY_ANALYSIS_TIMEOUT_MS ?? '30000', 10)
 const MAX_TOKENS = Number.parseInt(process.env.REPLY_ANALYSIS_MAX_TOKENS ?? '220', 10)
 
