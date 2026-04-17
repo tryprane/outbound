@@ -84,6 +84,10 @@ function candidateTime(candidate: Pick<MailboxCandidate | InboundCandidate, 'sen
   return candidate.sentAt || candidate.receivedAt || candidate.createdAt
 }
 
+function replyAnchorTime(record: SentMailReplyRecord, match: MailboxCandidate | undefined) {
+  return match ? candidateTime(match) : record.sentAt
+}
+
 function uniqueReplyKey(reply: RawInboundReply) {
   return [
     reply.id,
@@ -242,13 +246,14 @@ export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
   const replyStates = new Map<string, SentMailReplyDetail>()
   for (const record of sentRecords) {
     const match = matchedBySentMail.get(record.id)
+    const anchorTime = replyAnchorTime(record, match)
 
     const threadKeys = match ? ([match.mailboxThreadId, match.providerThreadId].filter(Boolean) as string[]) : []
     const threadedReplies = threadKeys
       .flatMap((key) => inboundByThread.get(key) || [])
-      .filter((reply) => candidateTime(reply).getTime() > record.sentAt.getTime())
+      .filter((reply) => candidateTime(reply).getTime() > anchorTime.getTime())
     const fallbackReplies = (inboundByAccountAndSender.get(`${record.mailAccountId}:${normalizeEmail(record.toEmail)}`) || [])
-      .filter((reply) => candidateTime(reply).getTime() > record.sentAt.getTime())
+      .filter((reply) => candidateTime(reply).getTime() > anchorTime.getTime())
       .filter((reply) => subjectsLookRelated(record.subject, reply.subject))
     const relevantReplies = (threadedReplies.length > 0 ? threadedReplies : fallbackReplies)
       .sort((a, b) => candidateTime(a).getTime() - candidateTime(b).getTime())
