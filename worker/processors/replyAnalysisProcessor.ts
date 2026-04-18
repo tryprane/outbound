@@ -13,7 +13,6 @@ async function processReplyAnalysisJob(job: Job<ReplyAnalysisJobData>) {
       id: true,
       direction: true,
       isWarmup: true,
-      openedAt: true,
       subject: true,
       snippet: true,
       fromEmail: true,
@@ -23,7 +22,7 @@ async function processReplyAnalysisJob(job: Job<ReplyAnalysisJobData>) {
   })
 
   if (!message) return
-  if (message.direction !== 'inbound' || message.isWarmup || !message.openedAt) return
+  if (message.direction !== 'inbound' || message.isWarmup) return
   if (!job.data.force && message.analysisStatus === 'complete') return
 
   await prisma.mailboxMessage.update({

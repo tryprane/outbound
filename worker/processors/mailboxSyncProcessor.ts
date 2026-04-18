@@ -8,6 +8,7 @@ import type { MailboxMessageRecord } from '~/lib/mailboxProviders/types'
 import { getRedisConnection } from '~/lib/redis'
 import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { mailboxInteractionQueue } from '~/queues/mailboxInteractionQueue'
+import { replyAnalysisQueue } from '~/queues/replyAnalysisQueue'
 import type { MailboxSyncJobData } from '~/queues/mailboxSyncQueue'
 
 const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox' // legacy — kept so old DB error strings still resolve
@@ -184,11 +185,12 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
       days: MAILBOX_SYNC_LOOKBACK_DAYS,
       limitPerFolder: MAILBOX_SYNC_LIMIT_PER_FOLDER,
     })
+    const replyAnalysisCandidates = new Set<string>()
 
     for (const message of messages) {
       const thread = await resolveThread(account.id, message)
       const isWarmup = await detectWarmup(account.id, message)
-      await prisma.mailboxMessage.upsert({
+      const stored = await prisma.mailboxMessage.upsert({
         where: {
           mailAccountId_providerMessageId: {
             mailAccountId: account.id,
@@ -240,6 +242,14 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
           metadata: (message.metadata as Prisma.InputJsonValue | undefined) ?? undefined,
         },
       })
+
+      if (
+        stored.direction === 'inbound' &&
+        !stored.isWarmup &&
+        (stored.analysisStatus === 'idle' || stored.analysisStatus === 'error')
+      ) {
+        replyAnalysisCandidates.add(stored.id)
+      }
     }
 
     const periodStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
@@ -321,6 +331,16 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
         {
           jobId: `mailbox-interaction-${candidate.id}-open`,
           delay: (Math.floor(Math.random() * 14) + 2) * 60_000,
+        }
+      )
+    }
+
+    for (const mailboxMessageId of replyAnalysisCandidates) {
+      await replyAnalysisQueue.add(
+        'analyze-reply' as never,
+        { mailboxMessageId, reason: 'detected' } as never,
+        {
+          jobId: `reply-analysis-${mailboxMessageId}`,
         }
       )
     }
