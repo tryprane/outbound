@@ -3,7 +3,7 @@ import { getBullConnection } from '@/lib/redis'
 
 export interface ReplyAnalysisJobData {
   mailboxMessageId: string
-  reason?: 'opened' | 'reply-thread-view'
+  reason?: 'detected' | 'opened' | 'reply-thread-view'
   force?: boolean
 }
 
