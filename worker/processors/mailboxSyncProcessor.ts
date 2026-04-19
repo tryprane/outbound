@@ -6,6 +6,7 @@ import { isGmailMailboxPermissionError } from '~/lib/mailboxProviders/gmailMailb
 import { isZohoApiAuthError } from '~/lib/zohoMailApi'
 import type { MailboxMessageRecord } from '~/lib/mailboxProviders/types'
 import { getRedisConnection } from '~/lib/redis'
+import { collectTrackedReplyMessageIds } from '~/lib/sentMailReplyTracking'
 import { getWorkerConcurrency } from '~/lib/workerConcurrency'
 import { mailboxInteractionQueue } from '~/queues/mailboxInteractionQueue'
 import { replyAnalysisQueue } from '~/queues/replyAnalysisQueue'
@@ -323,9 +324,24 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
       take: 15,
       select: { id: true },
     })
+    const sentRecords = await prisma.sentMail.findMany({
+      where: {
+        mailAccountId: account.id,
+        status: 'sent',
+      },
+      select: {
+        id: true,
+        mailAccountId: true,
+        toEmail: true,
+        subject: true,
+        sentAt: true,
+      },
+    })
+    const trackedReplyIds = new Set(await collectTrackedReplyMessageIds(sentRecords))
     const pendingReplyAnalysis = await prisma.mailboxMessage.findMany({
       where: {
         mailAccountId: account.id,
+        id: { in: Array.from(trackedReplyIds) },
         direction: 'inbound',
         isWarmup: false,
         analysisStatus: { in: ['idle', 'error'] },

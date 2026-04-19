@@ -1,6 +1,6 @@
-import { prisma } from '@/lib/prisma'
+import { prisma } from '~/lib/prisma'
 
-type SentMailReplyRecord = {
+export type SentMailReplyRecord = {
   id: string
   mailAccountId: string
   toEmail: string
@@ -33,26 +33,12 @@ type RawInboundReply = InboundCandidate & {
   mailAccountId: string
   fromEmail: string | null
   subject: string | null
-  snippet: string | null
 }
 
-export type SentMailReplyState = {
+type SentMailReplyDetail = {
   repliedAt: string | null
   replyCount: number
-}
-
-export type SentMailReplyMessage = {
-  id: string
-  fromEmail: string | null
-  subject: string | null
-  snippet: string | null
-  sentAt: string | null
-  receivedAt: string | null
-  createdAt: string
-}
-
-export type SentMailReplyDetail = SentMailReplyState & {
-  replies: SentMailReplyMessage[]
+  replyIds: string[]
 }
 
 function normalizeEmail(value: string | null | undefined) {
@@ -122,30 +108,6 @@ function chooseBestCandidate(record: SentMailReplyRecord, candidates: MailboxCan
   }
 
   return best?.candidate || null
-}
-
-export async function loadSentMailReplyStates(records: SentMailReplyRecord[]) {
-  const details = await loadSentMailReplyDetails(records)
-  return new Map(
-    Array.from(details.entries()).map(([id, detail]) => [
-      id,
-      {
-        repliedAt: detail.repliedAt,
-        replyCount: detail.replyCount,
-      },
-    ])
-  )
-}
-
-export async function collectTrackedReplyMessageIds(records: SentMailReplyRecord[]) {
-  const details = await loadSentMailReplyDetails(records)
-  return Array.from(
-    new Set(
-      Array.from(details.values()).flatMap((detail) =>
-        detail.replies.map((reply) => reply.id).filter(Boolean)
-      )
-    )
-  )
 }
 
 export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
@@ -231,7 +193,6 @@ export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
       providerThreadId: true,
       fromEmail: true,
       subject: true,
-      snippet: true,
       sentAt: true,
       receivedAt: true,
       createdAt: true,
@@ -280,17 +241,18 @@ export async function loadSentMailReplyDetails(records: SentMailReplyRecord[]) {
     replyStates.set(record.id, {
       repliedAt: replies[0] ? candidateTime(replies[0]).toISOString() : null,
       replyCount: replies.length,
-      replies: replies.map((reply) => ({
-        id: reply.id,
-        fromEmail: reply.fromEmail,
-        subject: reply.subject,
-        snippet: reply.snippet,
-        sentAt: reply.sentAt?.toISOString() || null,
-        receivedAt: reply.receivedAt?.toISOString() || null,
-        createdAt: reply.createdAt.toISOString(),
-      })),
+      replyIds: replies.map((reply) => reply.id),
     })
   }
 
   return replyStates
+}
+
+export async function collectTrackedReplyMessageIds(records: SentMailReplyRecord[]) {
+  const details = await loadSentMailReplyDetails(records)
+  return Array.from(
+    new Set(
+      Array.from(details.values()).flatMap((detail) => detail.replyIds.filter(Boolean))
+    )
+  )
 }

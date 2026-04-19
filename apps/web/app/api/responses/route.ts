@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { buildPaginatedResult, parsePaginationParams } from '@/lib/pagination'
 import { queueReplyAnalysisJobs } from '@/lib/replyAnalysisQueue'
+import { collectTrackedReplyMessageIds } from '@/lib/sentMailReplyTracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,8 +37,48 @@ export async function GET(request: NextRequest) {
     const priority = normalizePriority(searchParams.get('priority'))
     const shouldReply = normalizeShouldReply(searchParams.get('shouldReply'))
     const search = normalizeSearch(searchParams.get('search'))
+    const sentRecords = await prisma.sentMail.findMany({
+      where: {
+        status: 'sent',
+        ...(mailAccountId ? { mailAccountId } : {}),
+      },
+      select: {
+        id: true,
+        mailAccountId: true,
+        toEmail: true,
+        subject: true,
+        sentAt: true,
+      },
+    })
+    const trackedReplyIds = await collectTrackedReplyMessageIds(sentRecords)
+
+    if (trackedReplyIds.length === 0) {
+      return NextResponse.json({
+        ...buildPaginatedResult([], 0, pagination),
+        replies: [],
+        summary: {
+          openedCount: 0,
+          analyzedCount: 0,
+          pendingCount: 0,
+          shouldReplyCount: 0,
+          highPriorityCount: 0,
+          labelCounts: {},
+        },
+        filters: {
+          accounts: await prisma.mailAccount.findMany({
+            orderBy: { email: 'asc' },
+            select: {
+              id: true,
+              email: true,
+              displayName: true,
+            },
+          }),
+        },
+      })
+    }
 
     const where: Prisma.MailboxMessageWhereInput = {
+      id: { in: trackedReplyIds },
       direction: 'inbound',
       isWarmup: false,
       ...(mailAccountId ? { mailAccountId } : {}),
