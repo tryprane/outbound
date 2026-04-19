@@ -161,10 +161,10 @@ export default function ResponsesPage() {
           <div className="max-w-3xl space-y-3">
             <div className="text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">Responses</div>
             <h1 className="text-4xl font-semibold tracking-[-0.05em] text-[var(--text-primary)]">
-              Opened reply insights for your outbound inbox.
+              Reply insights for your outbound inbox.
             </h1>
             <p className="max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
-              Insights are generated only after a synced reply has been opened from the inbox or reply thread view. The cards summarize analyzed replies, and the list below shows the original sender, your mailbox, and the reply preview.
+              Insights are generated automatically for synced inbound replies. The cards summarize analyzed replies, and the list below shows the original sender, your mailbox, and the reply preview.
             </p>
           </div>
           <button className="btn-ghost" onClick={() => void loadResponses()}>
@@ -175,9 +175,9 @@ export default function ResponsesPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {[
-          ['Opened replies', summary.openedCount, 'All opened inbound replies'],
+          ['All replies', summary.openedCount, 'All synced inbound replies'],
           ['Analyzed', summary.analyzedCount, 'Replies with completed insight extraction'],
-          ['Pending', summary.pendingCount, 'Opened replies still waiting for analysis'],
+          ['Pending', summary.pendingCount, 'Replies still waiting for analysis'],
           ['Need reply', summary.shouldReplyCount, 'Replies the model flagged for follow-up'],
           ['High priority', summary.highPriorityCount, 'Replies that should be checked first'],
         ].map(([title, value, note]) => (

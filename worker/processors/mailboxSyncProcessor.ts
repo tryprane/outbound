@@ -323,6 +323,17 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
       take: 15,
       select: { id: true },
     })
+    const pendingReplyAnalysis = await prisma.mailboxMessage.findMany({
+      where: {
+        mailAccountId: account.id,
+        direction: 'inbound',
+        isWarmup: false,
+        analysisStatus: { in: ['idle', 'error'] },
+      },
+      orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 250,
+      select: { id: true },
+    })
 
     for (const candidate of pendingInteractions) {
       await mailboxInteractionQueue.add(
@@ -333,6 +344,10 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
           delay: (Math.floor(Math.random() * 14) + 2) * 60_000,
         }
       )
+    }
+
+    for (const candidate of pendingReplyAnalysis) {
+      replyAnalysisCandidates.add(candidate.id)
     }
 
     for (const mailboxMessageId of replyAnalysisCandidates) {

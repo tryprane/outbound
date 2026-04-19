@@ -40,7 +40,6 @@ export async function GET(request: NextRequest) {
     const where: Prisma.MailboxMessageWhereInput = {
       direction: 'inbound',
       isWarmup: false,
-      openedAt: { not: null },
       ...(mailAccountId ? { mailAccountId } : {}),
       ...(analysisStatus ? { analysisStatus } : {}),
       ...(label ? { analysisLabel: label } : {}),
@@ -72,11 +71,12 @@ export async function GET(request: NextRequest) {
       shouldReplyCount,
       highPriorityCount,
       labels,
+      pendingAnalysis,
       accounts,
     ] = await Promise.all([
       prisma.mailboxMessage.findMany({
         where,
-        orderBy: [{ analyzedAt: 'desc' }, { openedAt: 'desc' }, { receivedAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ analyzedAt: 'desc' }, { receivedAt: 'desc' }, { createdAt: 'desc' }],
         skip: pagination.skip,
         take: pagination.limit,
         select: {
@@ -115,6 +115,15 @@ export async function GET(request: NextRequest) {
         where: completeWhere,
         _count: { analysisLabel: true },
       }),
+      prisma.mailboxMessage.findMany({
+        where: {
+          ...where,
+          analysisStatus: { in: ['idle', 'error'] },
+        },
+        orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 250,
+        select: { id: true },
+      }),
       prisma.mailAccount.findMany({
         orderBy: { email: 'asc' },
         select: {
@@ -131,15 +140,13 @@ export async function GET(request: NextRequest) {
       return acc
     }, {})
 
-    const idleReplyIds = messages
-      .filter((message) => message.analysisStatus === 'idle')
-      .map((message) => message.id)
+    const idleReplyIds = pendingAnalysis.map((message) => message.id)
 
     if (idleReplyIds.length > 0) {
       await queueReplyAnalysisJobs(
         idleReplyIds.map((mailboxMessageId) => ({
           mailboxMessageId,
-          reason: 'opened',
+          reason: 'detected',
         }))
       )
     }
