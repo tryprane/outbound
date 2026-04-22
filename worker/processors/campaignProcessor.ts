@@ -275,6 +275,7 @@ async function processCampaignJob(job: Job<CampaignJobData>) {
       csvRowId: row.id,
       whatsappAccountId: waAccount.id,
       reservationKey,
+      source: 'campaign',
       toPhone: finalPhone,
       message: generated.message,
     }

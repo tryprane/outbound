@@ -106,6 +106,7 @@ async function processApiDispatchJob(job: Job<ApiDispatchJobData>) {
       whatsappAccountId: account.id,
       apiDispatchRequestId: request.id,
       reservationKey,
+      source: 'api',
       toPhone: request.requestedTo,
       message: request.content,
     }

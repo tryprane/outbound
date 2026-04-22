@@ -160,8 +160,8 @@ export default function InboxPage() {
   useEffect(() => {
     const loadAccountsAndSettings = async () => {
       const [mailRes, waRes] = await Promise.all([
-        readJson<PaginatedPayload<MailAccountOption>>('/api/mail-accounts?page=1&limit=100', emptyPage(100)),
-        readJson<PaginatedPayload<WhatsAppAccountOption>>('/api/mail-accounts?resource=whatsapp-accounts&page=1&limit=100', emptyPage(100)),
+        readJson<PaginatedPayload<MailAccountOption>>('/api/mail-accounts?view=selector&page=1&limit=100', emptyPage(100)),
+        readJson<PaginatedPayload<WhatsAppAccountOption>>('/api/mail-accounts?resource=whatsapp-accounts&view=selector&page=1&limit=100', emptyPage(100)),
       ])
       setMailAccounts(mailRes.items || [])
       setWhatsappAccounts(waRes.items || [])

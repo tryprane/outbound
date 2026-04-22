@@ -243,6 +243,7 @@ async function buildDomainHealthSummary(): Promise<DomainHealthSummary[]> {
 export async function GET(request: NextRequest) {
   try {
     const resource = request.nextUrl.searchParams.get('resource')
+    const view = request.nextUrl.searchParams.get('view')
     if (resource === 'warmup-recipients') {
       const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
       const [items, total] = await Promise.all([
@@ -451,6 +452,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(diagnostics)
     }
     if (resource === 'whatsapp-accounts') {
+      if (view === 'selector') {
+        const pagination = parsePaginationParams(request, { defaultLimit: 100, maxLimit: 200 })
+        const [items, total] = await Promise.all([
+          prisma.whatsAppAccount.findMany({
+            orderBy: { createdAt: 'asc' },
+            skip: pagination.skip,
+            take: pagination.limit,
+            select: {
+              id: true,
+              displayName: true,
+              phoneNumber: true,
+              isActive: true,
+              connectionStatus: true,
+            },
+          }),
+          prisma.whatsAppAccount.count(),
+        ])
+        return NextResponse.json(buildPaginatedResult(items, total, pagination))
+      }
+
       const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
       const [items, total] = await Promise.all([
         prisma.whatsAppAccount.findMany({
@@ -518,6 +539,25 @@ export async function GET(request: NextRequest) {
             mailboxSyncStatus: true,
             mailboxHealthScore: true,
             mailboxHealthStatus: true,
+          },
+        }),
+        prisma.mailAccount.count(),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
+    }
+
+    if (view === 'selector') {
+      const pagination = parsePaginationParams(request, { defaultLimit: 100, maxLimit: 200 })
+      const [items, total] = await Promise.all([
+        prisma.mailAccount.findMany({
+          orderBy: { createdAt: 'asc' },
+          skip: pagination.skip,
+          take: pagination.limit,
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            isActive: true,
           },
         }),
         prisma.mailAccount.count(),

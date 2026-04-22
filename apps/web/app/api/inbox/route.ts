@@ -285,6 +285,7 @@ export async function PATCH(request: NextRequest) {
           campaignId: null,
           csvRowId: null,
           whatsappAccountId: conversation.whatsappAccount.id,
+          source: 'inbox',
           toPhone: conversation.participantPhone || normalizeJidToPhone(conversation.participantJid),
           message: messageBody,
         } as never,

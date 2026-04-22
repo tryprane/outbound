@@ -124,7 +124,6 @@ export function useMailAccountsDashboard() {
       warmupRecipients,
       overview,
       warmupLogs,
-      diagnostics,
     ] = await Promise.all([
       readJson<PaginatedResponse<MailAccount>>(
         `/api/mail-accounts?page=${accountsPage}&limit=${accountsLimit}`,
@@ -143,7 +142,6 @@ export function useMailAccountsDashboard() {
         `/api/mail-accounts?resource=warmup-logs&page=${warmupLogPage}&limit=${warmupLogLimit}`,
         emptyPage(warmupLogLimit)
       ),
-      fetchDomainDiagnostics(),
     ])
 
     setAccountsData(accounts)
@@ -151,14 +149,19 @@ export function useMailAccountsDashboard() {
     setRecipientData(warmupRecipients)
     setWarmupOverview(overview)
     setWarmupLogData(warmupLogs)
-    setDomainDiagnostics(Array.isArray(diagnostics) ? diagnostics : [])
 
     if (!background) setLoading(false)
   }, [accountsLimit, accountsPage, recipientLimit, recipientPage, warmupLogLimit, warmupLogPage, whatsAppLimit, whatsAppPage])
 
+  const loadDomainDiagnostics = useCallback(async () => {
+    const diagnostics = await fetchDomainDiagnostics()
+    setDomainDiagnostics(Array.isArray(diagnostics) ? diagnostics : [])
+  }, [])
+
   useEffect(() => {
     void loadAll()
-  }, [loadAll])
+    void loadDomainDiagnostics()
+  }, [loadAll, loadDomainDiagnostics])
 
   useEffect(() => {
     setPendingDailyLimits((prev) => {
@@ -179,8 +182,9 @@ export function useMailAccountsDashboard() {
     }
     if (successMessage) showToast('success', successMessage)
     void loadAll(true)
+    void loadDomainDiagnostics()
     return true
-  }, [loadAll, showToast])
+  }, [loadAll, loadDomainDiagnostics, showToast])
 
   const handleToggleMailActive = useCallback(async (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => {
     const account = accountsData.items.find((item) => item.id === id)
@@ -346,7 +350,8 @@ export function useMailAccountsDashboard() {
     await deleteMailAccount(id)
     showToast('success', `${email} removed`)
     void loadAll(true)
-  }, [loadAll, showToast])
+    void loadDomainDiagnostics()
+  }, [loadAll, loadDomainDiagnostics, showToast])
 
   const handleCreateWhatsapp = useCallback(async () => {
     setWaSaving(true)
@@ -377,7 +382,8 @@ export function useMailAccountsDashboard() {
       return
     }
     void loadAll(true)
-  }, [loadAll, showToast])
+    void loadDomainDiagnostics()
+  }, [loadAll, loadDomainDiagnostics, showToast])
 
   const handleUpdateWhatsappLimit = useCallback(async (id: string, dailyLimit: number) => {
     const res = await patchWhatsappAccount({ id, dailyLimit })

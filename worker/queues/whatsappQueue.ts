@@ -7,6 +7,7 @@ export interface WhatsAppJobData {
   whatsappAccountId: string
   apiDispatchRequestId?: string | null
   reservationKey?: string | null
+  source?: 'campaign' | 'api' | 'inbox'
   toPhone: string
   message: string
 }

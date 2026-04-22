@@ -7,7 +7,16 @@ import { recordManagedWhatsAppOutbound, sendWhatsAppText } from '~/lib/whatsappB
 import { releaseWhatsAppAccountReservation } from '~/lib/apiDispatchPool'
 
 async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
-  const { campaignId, csvRowId, whatsappAccountId, apiDispatchRequestId, reservationKey, toPhone, message } = job.data
+  const {
+    campaignId,
+    csvRowId,
+    whatsappAccountId,
+    apiDispatchRequestId,
+    reservationKey,
+    source,
+    toPhone,
+    message,
+  } = job.data
   const account = await prisma.whatsAppAccount.findUnique({ where: { id: whatsappAccountId } })
   if (!account) throw new Error('WhatsApp account not found')
   if (!account.isActive || account.connectionStatus !== 'CONNECTED') {
@@ -40,8 +49,8 @@ async function processWhatsAppJob(job: Job<WhatsAppJobData>) {
       prisma.whatsAppAccount.update({
         where: { id: whatsappAccountId },
         data: {
-          sentToday: { increment: 1 },
-          lastMessageSentAt: new Date(),
+          ...(source === 'inbox' ? {} : { sentToday: { increment: 1 } }),
+          ...(source === 'inbox' ? {} : { lastMessageSentAt: new Date() }),
         },
       }),
       ...(campaignId
