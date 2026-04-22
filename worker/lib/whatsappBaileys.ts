@@ -9,7 +9,7 @@ type SocketMap = Map<string, ReturnType<typeof makeWASocket>>
 type WAVersion = [number, number, number]
 
 const sockets: SocketMap = new Map()
-const sessionRoot = path.resolve(process.cwd(), '.baileys-sessions')
+const sessionRoot = path.resolve(process.env.WHATSAPP_SESSION_DIR || path.join(process.cwd(), '.baileys-sessions'))
 let latestVersionCache: WAVersion | null = null
 
 if (!fs.existsSync(sessionRoot)) {

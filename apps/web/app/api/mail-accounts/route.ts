@@ -1142,6 +1142,18 @@ export async function DELETE(request: NextRequest) {
     if (resource === 'whatsapp-accounts') {
       const id = request.nextUrl.searchParams.get('id')
       if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+      const account = await prisma.whatsAppAccount.findUnique({
+        where: { id },
+        select: { id: true, sessionKey: true },
+      })
+      if (!account) {
+        return NextResponse.json({ error: 'WhatsApp account not found' }, { status: 404 })
+      }
+      await getWhatsAppSessionQueue().add(
+        'delete-whatsapp-session' as never,
+        { whatsappAccountId: account.id, sessionKey: account.sessionKey, mode: 'delete' } as never,
+        { jobId: `wa-delete-${account.id}-${Date.now()}` }
+      )
       await prisma.whatsAppAccount.delete({ where: { id } })
       return NextResponse.json({ success: true })
     }

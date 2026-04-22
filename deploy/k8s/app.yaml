@@ -97,6 +97,12 @@ spec:
           envFrom:
             - secretRef:
                 name: outbound-env
+          env:
+            - name: WHATSAPP_SESSION_DIR
+              value: /whatsapp-sessions
+          volumeMounts:
+            - name: whatsapp-sessions
+              mountPath: /whatsapp-sessions
           resources:
             requests:
               cpu: 100m
@@ -104,6 +110,10 @@ spec:
             limits:
               cpu: 750m
               memory: 768Mi
+      volumes:
+        - name: whatsapp-sessions
+          persistentVolumeClaim:
+            claimName: outbound-whatsapp-sessions
 ---
 apiVersion: apps/v1
 kind: Deployment

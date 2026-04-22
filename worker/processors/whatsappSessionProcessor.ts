@@ -6,11 +6,21 @@ import { clearWhatsAppSessionFiles, connectWhatsAppSession, resetWhatsAppSession
 import { WhatsAppSessionJobData } from '~/queues/whatsappSessionQueue'
 
 async function processWhatsAppSessionJob(job: Job<WhatsAppSessionJobData>) {
-  const { whatsappAccountId, mode } = job.data
+  const { whatsappAccountId, sessionKey, mode } = job.data
   const account = await prisma.whatsAppAccount.findUnique({
     where: { id: whatsappAccountId },
     select: { id: true, sessionKey: true, isActive: true },
   })
+
+  const resolvedSessionKey = sessionKey || account?.sessionKey || null
+
+  if (mode === 'delete') {
+    await resetWhatsAppSession(whatsappAccountId)
+    if (resolvedSessionKey) {
+      await clearWhatsAppSessionFiles(resolvedSessionKey)
+    }
+    return
+  }
 
   if (!account) throw new Error('WhatsApp account not found')
   if (!account.isActive) throw new Error('WhatsApp account is inactive')

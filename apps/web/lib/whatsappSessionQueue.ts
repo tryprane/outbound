@@ -3,7 +3,8 @@ import { getBullConnection } from '@/lib/redis'
 
 export interface WhatsAppSessionJobData {
   whatsappAccountId: string
-  mode: 'connect' | 'reconnect'
+  sessionKey?: string | null
+  mode: 'connect' | 'reconnect' | 'delete'
 }
 
 let whatsappSessionQueue: Queue<WhatsAppSessionJobData> | undefined

@@ -145,6 +145,19 @@ spec:
             claimName: outbound-redis-data
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: outbound-whatsapp-sessions
+  namespace: outbound
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: outbound-redis
@@ -156,4 +169,3 @@ spec:
     - name: redis
       port: 6379
       targetPort: 6379
-
