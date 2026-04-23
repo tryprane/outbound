@@ -159,17 +159,6 @@ export async function connectWhatsAppSession(accountId: string, sessionKey: stri
         const remoteJid = message.key.remoteJid
         if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue
 
-        const existingConversation = await prisma.whatsAppConversation.findUnique({
-          where: {
-            whatsappAccountId_participantJid: {
-              whatsappAccountId: accountId,
-              participantJid: remoteJid,
-            },
-          },
-          select: { id: true },
-        })
-        if (!existingConversation) continue
-
         const text =
           message.message?.conversation ||
           message.message?.extendedTextMessage?.text ||
