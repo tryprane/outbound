@@ -50,11 +50,13 @@ async function upsertManagedConversation(accountId: string, remoteJid: string, d
       participantJid: remoteJid,
       participantPhone: jidToPhone(remoteJid),
       participantName: data?.participantName || null,
+      isManaged: true,
       lastMessageAt: data?.receivedAt || data?.sentAt || new Date(),
     },
     update: {
       participantPhone: jidToPhone(remoteJid),
       ...(data?.participantName ? { participantName: data.participantName } : {}),
+      isManaged: true,
       lastMessageAt: data?.receivedAt || data?.sentAt || new Date(),
     },
     select: { id: true },
@@ -112,6 +114,32 @@ async function upsertManagedConversation(accountId: string, remoteJid: string, d
   return conversation
 }
 
+async function ensureManagedConversation(accountId: string, remoteJid: string, participantName?: string | null) {
+  await prisma.whatsAppConversation.upsert({
+    where: {
+      whatsappAccountId_participantJid: {
+        whatsappAccountId: accountId,
+        participantJid: remoteJid,
+      },
+    },
+    create: {
+      whatsappAccountId: accountId,
+      participantJid: remoteJid,
+      participantPhone: jidToPhone(remoteJid),
+      participantName: participantName || null,
+      isManaged: true,
+      lastMessageAt: new Date(),
+    },
+    update: {
+      participantPhone: jidToPhone(remoteJid),
+      ...(participantName ? { participantName } : {}),
+      isManaged: true,
+      lastMessageAt: new Date(),
+    },
+    select: { id: true },
+  })
+}
+
 async function getSocketVersion() {
   if (latestVersionCache) return latestVersionCache
   try {
@@ -158,6 +186,17 @@ export async function connectWhatsAppSession(accountId: string, sessionKey: stri
         if (message.key.fromMe) continue
         const remoteJid = message.key.remoteJid
         if (!remoteJid || !remoteJid.endsWith('@s.whatsapp.net')) continue
+
+        const existingConversation = await prisma.whatsAppConversation.findUnique({
+          where: {
+            whatsappAccountId_participantJid: {
+              whatsappAccountId: accountId,
+              participantJid: remoteJid,
+            },
+          },
+          select: { id: true, isManaged: true },
+        })
+        if (!existingConversation?.isManaged) continue
 
         const text =
           message.message?.conversation ||
@@ -276,6 +315,7 @@ export async function ensureWhatsAppSessions() {
 export async function sendWhatsAppText(accountId: string, sessionKey: string, toPhone: string, text: string) {
   const sock = sockets.get(accountId) || await connectWhatsAppSession(accountId, sessionKey)
   const jid = normalizePhone(toPhone)
+  await ensureManagedConversation(accountId, jid)
   const response = await sock.sendMessage(jid, { text })
   return {
     participantJid: jid,
