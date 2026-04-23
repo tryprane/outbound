@@ -77,14 +77,11 @@ async function processMailJob(job: Job<MailJobData>) {
   if (!account.isActive || account.warmupStatus !== 'WARMED') {
     throw new Error(`Mail account ${mailAccountId} is not eligible for sending (requires ACTIVE + WARMED).`)
   }
-  if (account.mailboxHealthStatus === 'at_risk' || account.mailboxHealthStatus === 'paused') {
-    throw new Error(`Mail account ${mailAccountId} is blocked by mailbox health status ${account.mailboxHealthStatus}.`)
-  }
-  if (account.mailboxHealthScore > 0 && account.mailboxHealthScore < 55) {
-    throw new Error(`Mail account ${mailAccountId} is blocked because mailbox health score is too low (${account.mailboxHealthScore}).`)
-  }
   if (account.mailboxSyncStatus === 'error') {
     throw new Error(`Mail account ${mailAccountId} has mailbox sync errors and is temporarily blocked.`)
+  }
+  if (account.mailboxHealthStatus === 'paused') {
+    throw new Error(`Mail account ${mailAccountId} is blocked because mailbox health is paused.`)
   }
   await assertRecentSenderReputation(mailAccountId)
 

@@ -35,14 +35,11 @@ export function evaluateMailAccountGuardrail(
   if (account.warmupStatus !== 'WARMED') {
     return { eligible: false, reason: 'Mailbox warmup is not complete' }
   }
-  if (account.mailboxHealthStatus === 'at_risk' || account.mailboxHealthStatus === 'paused') {
-    return { eligible: false, reason: `Mailbox health is ${account.mailboxHealthStatus}` }
-  }
-  if (account.mailboxHealthScore > 0 && account.mailboxHealthScore < 55) {
-    return { eligible: false, reason: `Mailbox health score is ${account.mailboxHealthScore}` }
-  }
   if (account.mailboxSyncStatus === 'error') {
     return { eligible: false, reason: 'Mailbox sync is in error state' }
+  }
+  if (account.mailboxHealthStatus === 'paused') {
+    return { eligible: false, reason: 'Mailbox health is paused' }
   }
   return { eligible: true, reason: null }
 }

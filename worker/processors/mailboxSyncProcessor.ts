@@ -73,6 +73,21 @@ function calculateHealth(messages: Array<{
   const repliedInbound = inbound.filter((message) => message.repliedAt)
   const rescued = inbound.filter((message) => message.rescuedAt)
 
+  if (inbound.length === 0) {
+    return {
+      healthScore: 0,
+      healthStatus: 'cold',
+      inboxRate: 0,
+      spamRate: 0,
+      readRate: 0,
+      replyRate: 0,
+      rescueRate: 0,
+      sentCount: outbound.length,
+      receivedCount: inbound.length,
+      rescuedCount: rescued.length,
+    }
+  }
+
   const inboxRate = inbound.length > 0 ? inboxInbound.length / inbound.length : 0
   const spamRate = inbound.length > 0 ? spamInbound.length / inbound.length : 0
   const readRate = inbound.length > 0 ? readInbound.length / inbound.length : 0
@@ -115,6 +130,13 @@ function deriveWarmupAutomation(account: {
   const totalActivity = health.sentCount + health.receivedCount
   const decisions: Record<string, unknown> = {}
   let note = 'Mailbox sync completed'
+
+  if (health.receivedCount === 0) {
+    return {
+      decisions,
+      note: 'Mailbox sync completed without recent inbound warmup data',
+    }
+  }
 
   if (totalActivity >= 6 && health.healthScore < 35 && account.warmupAutoEnabled) {
     decisions.warmupStatus = 'PAUSED'
