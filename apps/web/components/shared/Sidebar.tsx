@@ -10,6 +10,7 @@ import {
   Inbox,
   KeySquare,
   Mail,
+  MailPlus,
   MessageSquareText,
   MessagesSquare,
   Send,
@@ -35,8 +36,9 @@ const navGroups = [
     items: [
       { label: 'Mail Accounts', href: '/mail-accounts', icon: Mail },
       { label: 'Email Warmup', href: '/warmup', icon: Flame },
+      { label: 'Send Mail', href: '/send-mail', icon: MailPlus },
       { label: 'Inbox', href: '/inbox', icon: Inbox },
-      { label: 'Sent Mail', href: '/sent', icon: Send },
+      { label: 'Sent', href: '/sent', icon: Send },
       { label: 'Responses', href: '/responses', icon: MessagesSquare },
     ],
   },

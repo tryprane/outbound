@@ -147,7 +147,13 @@ export function useMailAccountsDashboard() {
       ),
     ])
 
-    setAccountsData(accounts)
+    setAccountsData((prev) => ({
+      ...accounts,
+      items: accounts.items.map((account) => {
+        const existing = prev.items.find((item) => item.id === account.id)
+        return existing?.detailsLoaded ? { ...existing, ...account } : account
+      }),
+    }))
     setWhatsAppData(whatsappAccounts)
 
     if (!background) setLoading(false)
@@ -196,8 +202,12 @@ export function useMailAccountsDashboard() {
     }
     if (successMessage) showToast('success', successMessage)
     void loadAll(true)
+    const accountId = typeof body.id === 'string' ? body.id : null
+    if (accountId) {
+      void loadMailAccountDetail(accountId)
+    }
     return true
-  }, [loadAll, showToast])
+  }, [loadAll, loadMailAccountDetail, showToast])
 
   const handleToggleMailActive = useCallback(async (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => {
     const account = accountsData.items.find((item) => item.id === id)
