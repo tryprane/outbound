@@ -78,6 +78,8 @@ function MailAccountsPageContent() {
           mailboxMessages={dashboard.mailboxMessages}
           mailboxPagination={dashboard.mailboxPagination}
           mailboxLoading={dashboard.mailboxLoading}
+          accountDetailsLoading={dashboard.accountDetailsLoading}
+          loadMailAccountDetail={dashboard.loadMailAccountDetail}
           handleMailboxPageChange={dashboard.handleMailboxPageChange}
           handleMailboxLimitChange={dashboard.handleMailboxLimitChange}
           handleRunWarmupNow={dashboard.handleRunWarmupNow}

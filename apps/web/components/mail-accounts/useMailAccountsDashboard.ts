@@ -6,6 +6,7 @@ import {
   createWarmupRecipient,
   createWhatsappAccount,
   deleteMailAccount,
+  fetchMailAccountDetail,
   deleteWarmupRecipient,
   deleteWhatsappAccount,
   patchMailboxMessage,
@@ -78,6 +79,7 @@ export function useMailAccountsDashboard() {
   const [mailboxLimit, setMailboxLimit] = useState(25)
   const [mailboxData, setMailboxData] = useState<PaginatedResponse<MailboxMessage>>(emptyPage(25))
   const [mailboxLoading, setMailboxLoading] = useState(false)
+  const [accountDetailsLoading, setAccountDetailsLoading] = useState<Record<string, boolean>>({})
 
   const showToast = useCallback((type: 'success' | 'error', msg: string) => {
     setToast({ type, msg })
@@ -114,6 +116,19 @@ export function useMailAccountsDashboard() {
     setMailboxLimit(result.limit)
     setMailboxLoading(false)
   }, [mailboxLimit])
+
+  const loadMailAccountDetail = useCallback(async (id: string) => {
+    if (accountDetailsLoading[id]) return
+    setAccountDetailsLoading((prev) => ({ ...prev, [id]: true }))
+    const detail = await fetchMailAccountDetail(id)
+    if (detail) {
+      setAccountsData((prev) => ({
+        ...prev,
+        items: prev.items.map((account) => (account.id === id ? { ...account, ...detail, detailsLoaded: true } : account)),
+      }))
+    }
+    setAccountDetailsLoading((prev) => ({ ...prev, [id]: false }))
+  }, [accountDetailsLoading])
 
   const loadAll = useCallback(async (background = false) => {
     if (!background) setLoading(true)
@@ -534,6 +549,8 @@ export function useMailAccountsDashboard() {
     mailboxMessages: mailboxData.items,
     mailboxPagination: mailboxData,
     mailboxLoading,
+    accountDetailsLoading,
+    loadMailAccountDetail,
     ...derived,
   }
 }

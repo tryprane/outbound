@@ -97,6 +97,10 @@ export async function fetchMailboxMessages(mailAccountId: string, folderKind?: s
   })
 }
 
+export async function fetchMailAccountDetail(id: string) {
+  return readJson<MailAccount | null>(`/api/mail-accounts?resource=account-detail&id=${encodeURIComponent(id)}`, undefined, null)
+}
+
 export async function patchMailboxMessage(body: Record<string, unknown>) {
   return fetch('/api/mail-accounts?resource=mailbox-messages', {
     method: 'PATCH',

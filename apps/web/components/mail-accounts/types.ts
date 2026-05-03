@@ -13,7 +13,7 @@ export interface MailAccount {
   type: 'zoho' | 'gmail'
   email: string
   displayName: string
-  trackingDomain: string | null
+  trackingDomain?: string | null
   dailyLimit: number
   sentToday: number
   warmupDailyLimit: number
@@ -21,14 +21,16 @@ export interface MailAccount {
   isActive: boolean
   warmupStatus: 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
   warmupStage: number
-  recommendedDailyLimit: number
+  recommendedDailyLimit?: number
   warmupAutoEnabled: boolean
   warmupProviderPreference: 'random' | 'gmail' | 'zoho'
-  warmupStartedAt: string | null
-  warmupCompletedAt: string | null
-  warmupPausedAt: string | null
-  lastMailSentAt: string | null
-  tokenExpiry: string | null
+  warmupStartedAt?: string | null
+  warmupCompletedAt?: string | null
+  warmupPausedAt?: string | null
+  lastMailSentAt?: string | null
+  lastResetAt?: string | null
+  createdAt?: string
+  tokenExpiry?: string | null
   zohoAccountId?: string | null
   zohoRegion?: string | null
   zohoTokenExpiry?: string | null
@@ -41,16 +43,16 @@ export interface MailAccount {
   zohoSetupStatus?: 'complete' | 'pending_oauth' | 'pending_smtp' | 'pending_both'
   connectionReady?: boolean
   mailboxSyncAvailable?: boolean
-  imapHost: string | null
-  imapPort: number | null
-  imapSecure: boolean
-  mailboxLastSyncedAt: string | null
+  imapHost?: string | null
+  imapPort?: number | null
+  imapSecure?: boolean
+  mailboxLastSyncedAt?: string | null
   mailboxSyncStatus: 'idle' | 'syncing' | 'error'
-  mailboxSyncError: string | null
+  mailboxSyncError?: string | null
   zohoImapEnabled?: boolean
   mailboxHealthScore: number
   mailboxHealthStatus: string
-  warmupHealthSnapshots: Array<{
+  warmupHealthSnapshots?: Array<{
     id: string
     periodEnd: string
     healthScore: number
@@ -62,14 +64,15 @@ export interface MailAccount {
     rescueRate: number
     notes?: string | null
   }>
-  warmupStats7d: {
+  warmupStats7d?: {
     total: number
     sent: number
     failed: number
     bounced: number
     successRate: number
   }
-  _count: { sentMails: number }
+  _count?: { sentMails: number }
+  detailsLoaded?: boolean
 }
 
 export interface WhatsAppAccount {

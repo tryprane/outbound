@@ -18,6 +18,71 @@ type WarmupStatus = 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
 const ZOHO_IMAP_DISABLED_MESSAGE = 'Zoho IMAP is turned off for this mailbox'
 const ZOHO_API_RECONNECT_MESSAGE = 'Reconnect Zoho account to restore mailbox API access'
 
+function buildMailboxConnectionState(account: {
+  type: string
+  smtpHost: string | null
+  smtpPort: number | null
+  imapHost: string | null
+  imapPort: number | null
+  zohoMailboxMode: string | null
+  mailboxSyncError: string | null
+}, secrets: {
+  smtpPassword: string | null
+  accessToken?: string | null
+  refreshToken?: string | null
+  zohoRefreshToken?: string | null
+}) {
+  const gmailImapConnected =
+    account.type === 'gmail' && Boolean(account.smtpHost && account.smtpPort && secrets.smtpPassword && account.imapHost && account.imapPort)
+  const gmailOauthConnected = account.type === 'gmail' && Boolean(secrets.accessToken && secrets.refreshToken)
+  const zohoImapEnabled =
+    account.type !== 'zoho' ||
+    account.zohoMailboxMode !== 'imap' ||
+    account.mailboxSyncError !== ZOHO_IMAP_DISABLED_MESSAGE
+  const mailboxConnectionMethod =
+    account.type === 'zoho'
+      ? account.zohoMailboxMode
+      : account.type === 'gmail'
+        ? gmailImapConnected
+          ? 'imap'
+          : gmailOauthConnected
+            ? 'oauth'
+            : 'unknown'
+        : 'unknown'
+  const zohoApiConnected = account.type === 'zoho' && Boolean(secrets.zohoRefreshToken)
+  const zohoSmtpConnected = account.type === 'zoho' && Boolean(account.smtpHost && account.smtpPort && secrets.smtpPassword)
+  const zohoSetupStatus =
+    account.type !== 'zoho'
+      ? 'complete'
+      : zohoSmtpConnected && zohoApiConnected
+        ? 'complete'
+        : zohoSmtpConnected
+          ? 'pending_oauth'
+          : zohoApiConnected
+            ? 'pending_smtp'
+            : 'pending_both'
+  const mailboxSyncAvailable =
+    (account.type === 'gmail' && (gmailImapConnected || gmailOauthConnected)) ||
+    (account.type === 'zoho' && (
+      (account.zohoMailboxMode === 'api' && zohoApiConnected) ||
+      (account.zohoMailboxMode === 'imap' && zohoImapEnabled)
+    ))
+
+  return {
+    gmailImapConnected,
+    gmailOauthConnected,
+    mailboxConnectionMethod,
+    zohoApiConnected,
+    zohoSmtpConnected,
+    zohoSetupStatus,
+    connectionReady: account.type === 'zoho' ? zohoSetupStatus === 'complete' : true,
+    mailboxSyncAvailable,
+    zohoImapEnabled,
+    mailboxSyncError:
+      account.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE ? null : account.mailboxSyncError,
+  }
+}
+
 async function loadWarmupSettings() {
   const record = await prisma.systemSetting.findUnique({
     where: { key: WARMUP_SETTINGS_KEY },
@@ -546,31 +611,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(buildPaginatedResult(items, total, pagination))
     }
 
-    if (view === 'selector') {
-      const pagination = parsePaginationParams(request, { defaultLimit: 100, maxLimit: 200 })
-      const [items, total] = await Promise.all([
-        prisma.mailAccount.findMany({
-          orderBy: { createdAt: 'asc' },
-          skip: pagination.skip,
-          take: pagination.limit,
-          select: {
-            id: true,
-            email: true,
-            displayName: true,
-            isActive: true,
-          },
-        }),
-        prisma.mailAccount.count(),
-      ])
-      return NextResponse.json(buildPaginatedResult(items, total, pagination))
-    }
+    if (resource === 'account-detail') {
+      const id = request.nextUrl.searchParams.get('id')
+      if (!id) {
+        return NextResponse.json({ error: 'Missing account id' }, { status: 400 })
+      }
 
-    const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
-    const [accounts, total] = await Promise.all([
-      prisma.mailAccount.findMany({
-        orderBy: { createdAt: 'asc' },
-        skip: pagination.skip,
-        take: pagination.limit,
+      const account = await prisma.mailAccount.findUnique({
+        where: { id },
         select: {
           id: true,
           type: true,
@@ -632,88 +680,141 @@ export async function GET(request: NextRequest) {
             },
           },
         },
-      }),
-      prisma.mailAccount.count(),
-    ])
+      })
 
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    const warmupLogs = accounts.length
-      ? await prisma.warmupMailLog.findMany({
-          where: {
-            senderMailAccountId: { in: accounts.map((a) => a.id) },
-            sentAt: { gte: since },
-          },
-          select: {
-            senderMailAccountId: true,
-            status: true,
-          },
-        })
-      : []
+      if (!account) {
+        return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+      }
 
-    const statsByAccount = new Map<string, { total: number; sent: number; failed: number; bounced: number }>()
-    for (const log of warmupLogs) {
-      const current = statsByAccount.get(log.senderMailAccountId) || { total: 0, sent: 0, failed: 0, bounced: 0 }
-      current.total += 1
-      if (log.status === 'sent') current.sent += 1
-      if (log.status === 'failed') current.failed += 1
-      if (log.status === 'bounced') current.bounced += 1
-      statsByAccount.set(log.senderMailAccountId, current)
-    }
-
-    const withWarmupStats = accounts.map((account) => {
-      const stats = statsByAccount.get(account.id) || { total: 0, sent: 0, failed: 0, bounced: 0 }
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      const warmupLogs = await prisma.warmupMailLog.findMany({
+        where: {
+          senderMailAccountId: account.id,
+          sentAt: { gte: since },
+        },
+        select: {
+          status: true,
+        },
+      })
+      const stats = warmupLogs.reduce(
+        (current, log) => {
+          current.total += 1
+          if (log.status === 'sent') current.sent += 1
+          if (log.status === 'failed') current.failed += 1
+          if (log.status === 'bounced') current.bounced += 1
+          return current
+        },
+        { total: 0, sent: 0, failed: 0, bounced: 0 }
+      )
       const successRate = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100) : 0
       const { accessToken, refreshToken, zohoRefreshToken, smtpPassword, ...safeAccount } = account
-      const gmailImapConnected =
-        safeAccount.type === 'gmail' && Boolean(safeAccount.smtpHost && safeAccount.smtpPort && smtpPassword && safeAccount.imapHost && safeAccount.imapPort)
-      const gmailOauthConnected = safeAccount.type === 'gmail' && Boolean(accessToken && refreshToken)
-      const zohoImapEnabled =
-        safeAccount.type !== 'zoho' ||
-        safeAccount.zohoMailboxMode !== 'imap' ||
-        safeAccount.mailboxSyncError !== ZOHO_IMAP_DISABLED_MESSAGE
-      const mailboxConnectionMethod =
-        safeAccount.type === 'zoho'
-          ? safeAccount.zohoMailboxMode
-          : safeAccount.type === 'gmail'
-            ? gmailImapConnected
-              ? 'imap'
-              : gmailOauthConnected
-                ? 'oauth'
-                : 'unknown'
-            : 'unknown'
-      const zohoApiConnected = safeAccount.type === 'zoho' && Boolean(zohoRefreshToken)
-      const zohoSmtpConnected = safeAccount.type === 'zoho' && Boolean(safeAccount.smtpHost && safeAccount.smtpPort && smtpPassword)
-      const zohoSetupStatus =
-        safeAccount.type !== 'zoho'
-          ? 'complete'
-          : zohoSmtpConnected && zohoApiConnected
-            ? 'complete'
-            : zohoSmtpConnected
-              ? 'pending_oauth'
-              : zohoApiConnected
-                ? 'pending_smtp'
-                : 'pending_both'
-      const mailboxSyncAvailable =
-        (safeAccount.type === 'gmail' && (gmailImapConnected || gmailOauthConnected)) ||
-        (safeAccount.type === 'zoho' && (
-          (safeAccount.zohoMailboxMode === 'api' && zohoApiConnected) ||
-          (safeAccount.zohoMailboxMode === 'imap' && zohoImapEnabled)
-        ))
-      return {
+      const connectionState = buildMailboxConnectionState(safeAccount, {
+        accessToken,
+        refreshToken,
+        zohoRefreshToken,
+        smtpPassword,
+      })
+
+      return NextResponse.json({
         ...safeAccount,
-        mailboxConnectionMethod,
-        zohoApiConnected,
-        zohoSmtpConnected,
-        zohoSetupStatus,
-        connectionReady: safeAccount.type === 'zoho' ? zohoSetupStatus === 'complete' : true,
-        mailboxSyncAvailable,
-        zohoImapEnabled,
-        mailboxSyncError:
-          safeAccount.mailboxSyncError === ZOHO_IMAP_DISABLED_MESSAGE ? null : safeAccount.mailboxSyncError,
+        ...connectionState,
         warmupStats7d: {
           ...stats,
           successRate,
         },
+        detailsLoaded: true,
+      })
+    }
+
+    if (view === 'selector') {
+      const pagination = parsePaginationParams(request, { defaultLimit: 100, maxLimit: 200 })
+      const [items, total] = await Promise.all([
+        prisma.mailAccount.findMany({
+          orderBy: { createdAt: 'asc' },
+          skip: pagination.skip,
+          take: pagination.limit,
+          select: {
+            id: true,
+            email: true,
+            displayName: true,
+            isActive: true,
+          },
+        }),
+        prisma.mailAccount.count(),
+      ])
+      return NextResponse.json(buildPaginatedResult(items, total, pagination))
+    }
+
+    const pagination = parsePaginationParams(request, { defaultLimit: 10, maxLimit: 100 })
+    const [accounts, total] = await Promise.all([
+      prisma.mailAccount.findMany({
+        orderBy: { createdAt: 'asc' },
+        skip: pagination.skip,
+        take: pagination.limit,
+        select: {
+          id: true,
+          type: true,
+          email: true,
+          displayName: true,
+          smtpHost: true,
+          smtpPort: true,
+          smtpPassword: true,
+          dailyLimit: true,
+          sentToday: true,
+          warmupDailyLimit: true,
+          warmupSentToday: true,
+          isActive: true,
+          warmupStatus: true,
+          warmupStage: true,
+          warmupAutoEnabled: true,
+          warmupProviderPreference: true,
+          accessToken: true,
+          refreshToken: true,
+          zohoRefreshToken: true,
+          zohoMailboxMode: true,
+          imapHost: true,
+          imapPort: true,
+          mailboxSyncStatus: true,
+          mailboxSyncError: true,
+          mailboxHealthScore: true,
+          mailboxHealthStatus: true,
+        },
+      }),
+      prisma.mailAccount.count(),
+    ])
+
+    const withWarmupStats = accounts.map((account) => {
+      const { accessToken, refreshToken, zohoRefreshToken, smtpPassword, ...safeAccount } = account
+      const connectionState = buildMailboxConnectionState(safeAccount, {
+        accessToken,
+        refreshToken,
+        zohoRefreshToken,
+        smtpPassword,
+      })
+      return {
+        id: safeAccount.id,
+        type: safeAccount.type,
+        email: safeAccount.email,
+        displayName: safeAccount.displayName,
+        dailyLimit: safeAccount.dailyLimit,
+        sentToday: safeAccount.sentToday,
+        warmupDailyLimit: safeAccount.warmupDailyLimit,
+        warmupSentToday: safeAccount.warmupSentToday,
+        isActive: safeAccount.isActive,
+        warmupStatus: safeAccount.warmupStatus,
+        warmupStage: safeAccount.warmupStage,
+        warmupAutoEnabled: safeAccount.warmupAutoEnabled,
+        warmupProviderPreference: safeAccount.warmupProviderPreference,
+        mailboxSyncStatus: safeAccount.mailboxSyncStatus,
+        mailboxHealthScore: safeAccount.mailboxHealthScore,
+        mailboxHealthStatus: safeAccount.mailboxHealthStatus,
+        mailboxConnectionMethod: connectionState.mailboxConnectionMethod,
+        mailboxSyncAvailable: connectionState.mailboxSyncAvailable,
+        connectionReady: connectionState.connectionReady,
+        zohoApiConnected: connectionState.zohoApiConnected,
+        zohoImapEnabled: connectionState.zohoImapEnabled,
+        mailboxSyncError: connectionState.mailboxSyncError,
+        detailsLoaded: false,
       }
     })
     return NextResponse.json(buildPaginatedResult(withWarmupStats, total, pagination))

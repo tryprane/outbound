@@ -229,6 +229,8 @@ export function AccountsView(props: {
   mailboxMessages: MailboxMessage[]
   mailboxPagination: PaginatedResponse<MailboxMessage>
   mailboxLoading: boolean
+  accountDetailsLoading: Record<string, boolean>
+  loadMailAccountDetail: (id: string) => void
   handleMailboxPageChange: (page: number) => void
   handleMailboxLimitChange: (limit: number) => void
   handleRunWarmupNow: (id: string) => void
@@ -265,11 +267,21 @@ export function AccountsView(props: {
             ) : null}
             {props.accounts.map((account) => {
               const isExpanded = expandedAccountId === account.id
+              const isDetailLoading = props.accountDetailsLoading[account.id] === true
               return (
               <div key={account.id} style={{ ...surfaceCardStyle, padding: '18px' }}>
                 <button
                   type="button"
-                  onClick={() => setExpandedAccountId(isExpanded ? null : account.id)}
+                  onClick={() => {
+                    if (isExpanded) {
+                      setExpandedAccountId(null)
+                      return
+                    }
+                    setExpandedAccountId(account.id)
+                    if (!account.detailsLoaded) {
+                      props.loadMailAccountDetail(account.id)
+                    }
+                  }}
                   style={{
                     width: '100%',
                     border: 'none',
@@ -297,6 +309,12 @@ export function AccountsView(props: {
                 </button>
                 {isExpanded ? (
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]" style={{ gap: '18px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(60, 45, 25, 0.08)' }}>
+                  {!account.detailsLoaded ? (
+                    <div style={{ gridColumn: '1 / -1', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      {isDetailLoading ? 'Loading mailbox controls and health details...' : 'Loading mailbox controls...'}
+                    </div>
+                  ) : (
+                    <>
                   <div>
                     <AccountHeader
                       title={account.email}
@@ -305,9 +323,9 @@ export function AccountsView(props: {
                       secondaryStatus={account.type === 'zoho' && account.connectionReady === false ? 'Setup incomplete' : account.isActive ? 'Campaign active' : 'Campaign inactive'}
                     />
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '10px', marginTop: '14px' }}>
-                      <MetricPair label="Warmup 7d" value={`${account.warmupStats7d.successRate}% (${account.warmupStats7d.sent}/${account.warmupStats7d.total})`} />
+                      <MetricPair label="Warmup 7d" value={`${account.warmupStats7d?.successRate ?? 0}% (${account.warmupStats7d?.sent ?? 0}/${account.warmupStats7d?.total ?? 0})`} />
                       <MetricPair label="Campaign sending" value={`${account.sentToday}/${account.dailyLimit}`} />
-                      <MetricPair label="Warmup sending" value={`${account.warmupSentToday}/${account.warmupDailyLimit} with target ${account.recommendedDailyLimit}`} />
+                      <MetricPair label="Warmup sending" value={`${account.warmupSentToday}/${account.warmupDailyLimit} with target ${account.recommendedDailyLimit ?? account.warmupDailyLimit}`} />
                       <MetricPair label="Mailbox sync" value={<span><StatusBadge status={account.mailboxSyncStatus} /></span>} />
                       <MetricPair label="Mailbox health" value={`${account.mailboxHealthScore}/100 (${account.mailboxHealthStatus})`} tone={account.mailboxHealthScore > 65 ? 'var(--success)' : account.mailboxHealthScore > 0 ? 'var(--warning)' : 'var(--text-primary)'} />
                     </div>
@@ -340,14 +358,14 @@ export function AccountsView(props: {
                         Sync error: {account.mailboxSyncError}
                       </div>
                     ) : null}
-                    {account.warmupHealthSnapshots[0]?.notes ? (
+                    {account.warmupHealthSnapshots?.[0]?.notes ? (
                       <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {account.warmupHealthSnapshots[0].notes}
+                        {account.warmupHealthSnapshots[0]?.notes}
                       </div>
                     ) : null}
                     <ProgressBar
                       value={account.warmupSentToday}
-                      max={Math.max(account.recommendedDailyLimit, account.warmupDailyLimit)}
+                      max={Math.max(account.recommendedDailyLimit ?? account.warmupDailyLimit, account.warmupDailyLimit)}
                       color={account.warmupStatus === 'WARMED' ? 'var(--success)' : 'var(--accent)'}
                     />
                   </div>
@@ -442,6 +460,8 @@ export function AccountsView(props: {
                       <button className="btn-ghost" style={{ color: 'var(--error)' }} onClick={() => props.handleDeleteMail(account.id, account.email)}>Remove</button>
                     </ActionGrid>
                   </div>
+                    </>
+                  )}
                 </div>
                 ) : null}
                 {props.activeMailboxAccountId === account.id ? (
