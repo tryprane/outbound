@@ -189,3 +189,12 @@ spec:
                 name: outbound-web
                 port:
                   number: 3000
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: outbound-web
+                port:
+                  number: 3000

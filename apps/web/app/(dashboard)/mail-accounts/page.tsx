@@ -57,9 +57,16 @@ function MailAccountsPageContent() {
           setWhatsAppLimit={dashboard.setWhatsAppLimit}
           pendingDailyLimits={dashboard.pendingDailyLimits}
           setPendingDailyLimits={dashboard.setPendingDailyLimits}
+          pendingWarmupLimits={dashboard.pendingWarmupLimits}
+          setPendingWarmupLimits={dashboard.setPendingWarmupLimits}
+          pendingTrackingDomains={dashboard.pendingTrackingDomains}
+          setPendingTrackingDomains={dashboard.setPendingTrackingDomains}
           handleWarmupStatusChange={dashboard.handleWarmupStatusChange}
           handleWarmupAutoToggle={dashboard.handleWarmupAutoToggle}
           handleUpdateMailDailyLimit={dashboard.handleUpdateMailDailyLimit}
+          handleUpdateMailWarmupLimit={dashboard.handleUpdateMailWarmupLimit}
+          handleWarmupProviderPreferenceChange={dashboard.handleWarmupProviderPreferenceChange}
+          handleUpdateTrackingDomain={dashboard.handleUpdateTrackingDomain}
           handleReconnectGmail={dashboard.handleReconnectGmail}
           handleReconnectZohoApi={dashboard.handleReconnectZohoApi}
           handleUseZohoApi={dashboard.handleUseZohoApi}
@@ -93,7 +100,14 @@ function MailAccountsPageContent() {
         />
       ) : null}
 
-      {dashboard.activeTab === 'add-gmail' ? <AddGmailView /> : null}
+      {dashboard.activeTab === 'add-gmail' ? (
+        <AddGmailView
+          onAdded={() => {
+            void dashboard.loadAll()
+            dashboard.showToast('success', 'Gmail app-password setup saved')
+          }}
+        />
+      ) : null}
 
       {dashboard.activeTab === 'add-whatsapp' ? (
         <AddWhatsappView

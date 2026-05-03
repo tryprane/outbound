@@ -576,11 +576,14 @@ export async function GET(request: NextRequest) {
           type: true,
           email: true,
           displayName: true,
+          trackingDomain: true,
           smtpHost: true,
           smtpPort: true,
           smtpPassword: true,
           dailyLimit: true,
           sentToday: true,
+          warmupDailyLimit: true,
+          warmupSentToday: true,
           isActive: true,
           warmupStatus: true,
           warmupStage: true,
@@ -589,9 +592,12 @@ export async function GET(request: NextRequest) {
           warmupPausedAt: true,
           recommendedDailyLimit: true,
           warmupAutoEnabled: true,
+          warmupProviderPreference: true,
           createdAt: true,
           lastMailSentAt: true,
           lastResetAt: true,
+          accessToken: true,
+          refreshToken: true,
           tokenExpiry: true,
           zohoRefreshToken: true,
           zohoAccountId: true,
@@ -657,13 +663,24 @@ export async function GET(request: NextRequest) {
     const withWarmupStats = accounts.map((account) => {
       const stats = statsByAccount.get(account.id) || { total: 0, sent: 0, failed: 0, bounced: 0 }
       const successRate = stats.total > 0 ? Math.round((stats.sent / stats.total) * 100) : 0
-      const { zohoRefreshToken, smtpPassword, ...safeAccount } = account
+      const { accessToken, refreshToken, zohoRefreshToken, smtpPassword, ...safeAccount } = account
+      const gmailImapConnected =
+        safeAccount.type === 'gmail' && Boolean(safeAccount.smtpHost && safeAccount.smtpPort && smtpPassword && safeAccount.imapHost && safeAccount.imapPort)
+      const gmailOauthConnected = safeAccount.type === 'gmail' && Boolean(accessToken && refreshToken)
       const zohoImapEnabled =
         safeAccount.type !== 'zoho' ||
         safeAccount.zohoMailboxMode !== 'imap' ||
         safeAccount.mailboxSyncError !== ZOHO_IMAP_DISABLED_MESSAGE
       const mailboxConnectionMethod =
-        safeAccount.type === 'zoho' ? safeAccount.zohoMailboxMode : safeAccount.type === 'gmail' ? 'oauth' : 'unknown'
+        safeAccount.type === 'zoho'
+          ? safeAccount.zohoMailboxMode
+          : safeAccount.type === 'gmail'
+            ? gmailImapConnected
+              ? 'imap'
+              : gmailOauthConnected
+                ? 'oauth'
+                : 'unknown'
+            : 'unknown'
       const zohoApiConnected = safeAccount.type === 'zoho' && Boolean(zohoRefreshToken)
       const zohoSmtpConnected = safeAccount.type === 'zoho' && Boolean(safeAccount.smtpHost && safeAccount.smtpPort && smtpPassword)
       const zohoSetupStatus =
@@ -677,7 +694,7 @@ export async function GET(request: NextRequest) {
                 ? 'pending_smtp'
                 : 'pending_both'
       const mailboxSyncAvailable =
-        safeAccount.type === 'gmail' ||
+        (safeAccount.type === 'gmail' && (gmailImapConnected || gmailOauthConnected)) ||
         (safeAccount.type === 'zoho' && (
           (safeAccount.zohoMailboxMode === 'api' && zohoApiConnected) ||
           (safeAccount.zohoMailboxMode === 'imap' && zohoImapEnabled)
@@ -912,6 +929,8 @@ export async function PATCH(request: NextRequest) {
         fromEmail: message.fromEmail,
         toEmail: message.toEmail,
         subject: message.subject,
+        messageIdHeader: message.messageIdHeader,
+        referencesHeader: message.referencesHeader,
         metadata: (message.metadata as Record<string, unknown> | null) ?? null,
       }
 
@@ -966,6 +985,9 @@ export async function PATCH(request: NextRequest) {
       id: string
       isActive?: boolean
       dailyLimit?: number
+      warmupDailyLimit?: number
+      trackingDomain?: string | null
+      warmupProviderPreference?: 'random' | 'gmail' | 'zoho'
       warmupStatus?: WarmupStatus
       warmupStage?: number
       warmupAutoEnabled?: boolean
@@ -974,7 +996,21 @@ export async function PATCH(request: NextRequest) {
       runWarmupNow?: boolean
       runMailboxSyncNow?: boolean
     }
-    const { id, isActive, dailyLimit, warmupStatus, warmupStage, warmupAutoEnabled, zohoImapEnabled, zohoMailboxMode, runWarmupNow, runMailboxSyncNow } = body
+    const {
+      id,
+      isActive,
+      dailyLimit,
+      warmupDailyLimit,
+      trackingDomain,
+      warmupProviderPreference,
+      warmupStatus,
+      warmupStage,
+      warmupAutoEnabled,
+      zohoImapEnabled,
+      zohoMailboxMode,
+      runWarmupNow,
+      runMailboxSyncNow,
+    } = body
 
     const account = await prisma.mailAccount.findUnique({ where: { id } })
     if (!account) {
@@ -991,6 +1027,9 @@ export async function PATCH(request: NextRequest) {
 
     const data: Record<string, unknown> = {
       ...(dailyLimit !== undefined ? { dailyLimit: Math.max(1, dailyLimit) } : {}),
+      ...(warmupDailyLimit !== undefined ? { warmupDailyLimit: Math.max(1, warmupDailyLimit) } : {}),
+      ...(trackingDomain !== undefined ? { trackingDomain: trackingDomain?.trim() || null } : {}),
+      ...(warmupProviderPreference !== undefined ? { warmupProviderPreference } : {}),
       ...(isActive !== undefined ? { isActive } : {}),
       ...(warmupAutoEnabled !== undefined ? { warmupAutoEnabled } : {}),
     }
@@ -1034,7 +1073,7 @@ export async function PATCH(request: NextRequest) {
         data.warmupCompletedAt = account.warmupCompletedAt ?? new Date()
         data.warmupPausedAt = null
         data.recommendedDailyLimit = Math.max(
-          dailyLimit ?? account.dailyLimit,
+          warmupDailyLimit ?? account.warmupDailyLimit,
           recommendedLimitFromStage(stage, warmupSettings.stageCounts)
         )
       }
@@ -1060,9 +1099,9 @@ export async function PATCH(request: NextRequest) {
           { status: 400 }
         )
       }
-      if (updated.warmupStatus !== 'WARMING') {
+      if (!['WARMING', 'WARMED'].includes(updated.warmupStatus)) {
         return NextResponse.json(
-          { error: 'Warmup can only be triggered while the mailbox is in WARMING status.' },
+          { error: 'Warmup can only be triggered while the mailbox is in WARMING or WARMED status.' },
           { status: 400 }
         )
       }

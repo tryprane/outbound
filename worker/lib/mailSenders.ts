@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer'
 import { google } from 'googleapis'
 import { prisma } from '~/lib/prisma'
 import { decrypt, encrypt } from '~/lib/encryption'
+import { hasGmailImapSmtpAccess } from '~/lib/gmailImapMailbox'
 
 export async function sendViaZoho(
   mailAccountId: string,
@@ -43,6 +44,29 @@ export async function sendViaGmail(
 ) {
   const account = await prisma.mailAccount.findUnique({ where: { id: mailAccountId } })
   if (!account || account.type !== 'gmail') throw new Error('Gmail account not found')
+  if (hasGmailImapSmtpAccess(account)) {
+    const transporter = nodemailer.createTransport({
+      host: account.smtpHost!,
+      port: account.smtpPort!,
+      secure: account.smtpPort === 465,
+      auth: {
+        user: account.email,
+        pass: decrypt(account.smtpPassword!),
+      },
+    })
+
+    const info = await transporter.sendMail({
+      from: `"${account.displayName}" <${account.email}>`,
+      to,
+      subject,
+      html,
+    })
+
+    return {
+      providerMessageId: info.messageId || info.response || null,
+    }
+  }
+
   if (!account.accessToken || !account.refreshToken) throw new Error('Gmail tokens missing')
 
   const baseUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'

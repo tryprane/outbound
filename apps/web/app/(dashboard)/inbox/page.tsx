@@ -1,6 +1,7 @@
 'use client'
 
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { PaginationControls } from '@/components/ui/pagination-controls'
 
 type MailAccountOption = {
@@ -34,6 +35,17 @@ type EmailInboxMessage = {
   openedAt: string | null
   rescuedAt: string | null
   mailAccount: MailAccountOption
+}
+
+type EmailMessageModalState = {
+  id: string
+  subject: string | null
+  fromEmail: string | null
+  toEmail: string | null
+  sentAt: string | null
+  receivedAt: string | null
+  html: string | null
+  text: string | null
 }
 
 type WhatsAppConversationSummary = {
@@ -135,6 +147,10 @@ export default function InboxPage() {
   const [replyingMessageId, setReplyingMessageId] = useState<string | null>(null)
   const [emailReplySubject, setEmailReplySubject] = useState('Re: Quick follow-up')
   const [emailReplyBody, setEmailReplyBody] = useState('<p>Thanks for your message. Sharing a quick follow-up from the unified inbox.</p>')
+  const [isClient, setIsClient] = useState(false)
+  const [messageModal, setMessageModal] = useState<EmailMessageModalState | null>(null)
+  const [messageLoadingId, setMessageLoadingId] = useState<string | null>(null)
+  const [messageError, setMessageError] = useState<string | null>(null)
   const [waSearch, setWaSearch] = useState('')
   const deferredWaSearch = useDeferredValue(waSearch)
   const [selectedWhatsappAccountId, setSelectedWhatsappAccountId] = useState('')
@@ -150,6 +166,10 @@ export default function InboxPage() {
   const [waComposer, setWaComposer] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   useEffect(() => {
     if (!toast) return
@@ -352,6 +372,50 @@ export default function InboxPage() {
     }
   }
 
+  async function openEmailMessage(message: EmailInboxMessage) {
+    setMessageError(null)
+    setMessageLoadingId(message.id)
+
+    try {
+      const response = await fetch(`/api/inbox/${message.id}/message`)
+      const data = await response.json().catch(() => ({ error: 'Failed to load message content' }))
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load message content')
+      }
+
+      setMessageModal({
+        id: message.id,
+        subject: data.subject ?? message.subject,
+        fromEmail: data.fromEmail ?? message.fromEmail,
+        toEmail: data.toEmail ?? message.toEmail,
+        sentAt: data.sentAt ?? message.sentAt,
+        receivedAt: data.receivedAt ?? message.receivedAt,
+        html: data.html ?? null,
+        text: data.text ?? null,
+      })
+    } catch (error) {
+      const nextError = error instanceof Error ? error.message : 'Failed to load message content'
+      setMessageError(nextError)
+      setToast({ type: 'error', message: nextError })
+    } finally {
+      setMessageLoadingId(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!messageModal) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMessageModal(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [messageModal])
+
   return (
     <div className="animate-fade-in space-y-6">
       {toast ? (
@@ -447,6 +511,9 @@ export default function InboxPage() {
                         ) : null}
                       </div>
                       <div className="flex flex-wrap content-start gap-2">
+                        <button className="btn-ghost" onClick={() => void openEmailMessage(message)} disabled={messageLoadingId === message.id}>
+                          {messageLoadingId === message.id ? 'Loading...' : 'View message'}
+                        </button>
                         {!message.isRead ? (
                           <button className="btn-ghost" onClick={() => void runEmailAction(message, 'mark-read')} disabled={busyAction === `mark-read:${message.id}`}>
                             Mark read
@@ -639,6 +706,80 @@ export default function InboxPage() {
           </div>
         </section>
       )}
+
+      {messageError ? (
+        <div className="rounded-[20px] border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm text-rose-700">
+          {messageError}
+        </div>
+      ) : null}
+
+      {isClient && messageModal ? createPortal(
+        <div
+          onClick={() => setMessageModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            zIndex: 90,
+          }}
+        >
+          <div
+            className="rounded-[28px] border border-black/8 bg-white p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: 'min(980px, 100%)',
+              maxHeight: 'min(88vh, 1040px)',
+              overflowY: 'auto',
+            }}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-black/8 pb-4">
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-[0.16em] text-[var(--text-muted)]">Full message</div>
+                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+                  {messageModal.subject || '(no subject)'}
+                </h2>
+                <div className="text-sm leading-6 text-[var(--text-secondary)]">
+                  {messageModal.fromEmail ? `From ${messageModal.fromEmail}` : 'Unknown sender'}
+                  {messageModal.toEmail ? ` to ${messageModal.toEmail}` : ''}
+                </div>
+                <div className="text-xs uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                  {formatDate(messageModal.receivedAt || messageModal.sentAt)}
+                </div>
+              </div>
+              <button className="btn-ghost" onClick={() => setMessageModal(null)}>
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-[22px] border border-black/8 bg-[#fcfbf8]">
+              {messageModal.html ? (
+                <iframe
+                  title={messageModal.subject || 'Inbox message'}
+                  srcDoc={messageModal.html}
+                  sandbox=""
+                  style={{
+                    width: '100%',
+                    minHeight: '70vh',
+                    border: '0',
+                    background: 'white',
+                  }}
+                />
+              ) : (
+                <div className="p-5 text-sm leading-7 text-[var(--text-primary)] whitespace-pre-wrap">
+                  {messageModal.text || 'No full message content is available for this email yet.'}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      ) : null}
     </div>
   )
 }

@@ -330,22 +330,28 @@ async function processMailboxSyncJob(job: Job<MailboxSyncJobData>) {
       }),
     ])
 
-    const pendingInteractions = await prisma.mailboxMessage.findMany({
-      where: {
-        mailAccountId: account.id,
-        isWarmup: true,
-        direction: 'inbound',
-        OR: [
-          { isSpam: true, rescuedAt: null },
-          { isRead: false },
-          { openedAt: null },
-          { repliedAt: null },
-        ],
-      },
-      orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 15,
-      select: { id: true },
-    })
+    const canQueueWarmupInteractions =
+      account.warmupAutoEnabled &&
+      ['WARMING', 'WARMED'].includes(account.warmupStatus) &&
+      account.warmupSentToday < Math.min(account.recommendedDailyLimit, account.warmupDailyLimit)
+    const pendingInteractions = canQueueWarmupInteractions
+      ? await prisma.mailboxMessage.findMany({
+          where: {
+            mailAccountId: account.id,
+            isWarmup: true,
+            direction: 'inbound',
+            OR: [
+              { isSpam: true, rescuedAt: null },
+              { isRead: false },
+              { openedAt: null },
+              { repliedAt: null },
+            ],
+          },
+          orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
+          take: 15,
+          select: { id: true },
+        })
+      : []
     const sentRecords = await prisma.sentMail.findMany({
       where: {
         mailAccountId: account.id,

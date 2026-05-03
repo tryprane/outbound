@@ -11,6 +11,11 @@ function inferZohoImapHost(smtpHost: string): string {
   return 'imap.zoho.com'
 }
 
+function deriveTrackingDomain(email: string) {
+  const domain = email.split('@')[1]?.trim().toLowerCase()
+  return domain ? `track.${domain}` : null
+}
+
 // POST /api/mail-accounts/zoho — Save a Zoho SMTP account
 export async function POST(request: NextRequest) {
   try {
@@ -24,11 +29,13 @@ export async function POST(request: NextRequest) {
       imapSecure?: boolean
       password: string
       dailyLimit?: number
+      trackingDomain?: string
       testOnly?: boolean
     }
 
     const normalizedEmail = body.email?.trim().toLowerCase()
-    const { displayName, smtpHost, smtpPort, imapHost, imapPort, imapSecure, password, dailyLimit, testOnly } = body
+    const { displayName, smtpHost, smtpPort, imapHost, imapPort, imapSecure, password, dailyLimit, trackingDomain, testOnly } = body
+    const resolvedTrackingDomain = trackingDomain?.trim().toLowerCase() || deriveTrackingDomain(normalizedEmail)
 
     // Validate required fields
     if (!normalizedEmail || !smtpHost || !smtpPort || !password) {
@@ -67,12 +74,15 @@ export async function POST(request: NextRequest) {
           imapSecure: imapSecure ?? true,
           smtpPassword: encryptedPassword,
           zohoAuthError: null,
+          trackingDomain: resolvedTrackingDomain,
           dailyLimit: dailyLimit ?? 40,
+          warmupDailyLimit: dailyLimit ?? 40,
         warmupStatus: 'WARMING',
         warmupStage: 0,
         warmupStartedAt: new Date(),
         recommendedDailyLimit: 5,
         warmupAutoEnabled: true,
+        warmupProviderPreference: 'random',
         isActive: false,
       },
         update: {
@@ -85,7 +95,9 @@ export async function POST(request: NextRequest) {
           imapSecure: imapSecure ?? true,
           smtpPassword: encryptedPassword,
           zohoAuthError: null,
+          trackingDomain: resolvedTrackingDomain,
           dailyLimit: dailyLimit ?? 40,
+          warmupDailyLimit: dailyLimit ?? 40,
       },
     })
 
@@ -131,12 +143,15 @@ export async function GET() {
       id: true,
       email: true,
       displayName: true,
+      trackingDomain: true,
       smtpHost: true,
       smtpPort: true,
       zohoMailboxMode: true,
       zohoAuthError: true,
       dailyLimit: true,
       sentToday: true,
+      warmupDailyLimit: true,
+      warmupSentToday: true,
       isActive: true,
       warmupStatus: true,
       warmupStage: true,

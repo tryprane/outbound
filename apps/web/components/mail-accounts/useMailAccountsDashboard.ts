@@ -8,8 +8,6 @@ import {
   deleteMailAccount,
   deleteWarmupRecipient,
   deleteWhatsappAccount,
-  fetchDomainDiagnostics,
-  fetchMailboxMessages,
   patchMailboxMessage,
   patchMailAccount,
   patchWarmupRecipient,
@@ -67,6 +65,8 @@ export function useMailAccountsDashboard() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('accounts')
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [pendingDailyLimits, setPendingDailyLimits] = useState<Record<string, string>>({})
+  const [pendingWarmupLimits, setPendingWarmupLimits] = useState<Record<string, string>>({})
+  const [pendingTrackingDomains, setPendingTrackingDomains] = useState<Record<string, string>>({})
   const [waForm, setWaForm] = useState({ displayName: '', phoneNumber: '', dailyLimit: 40 })
   const [waSaving, setWaSaving] = useState(false)
   const [recipientForm, setRecipientForm] = useState({ email: '', name: '', isActive: true })
@@ -121,9 +121,6 @@ export function useMailAccountsDashboard() {
     const [
       accounts,
       whatsappAccounts,
-      warmupRecipients,
-      overview,
-      warmupLogs,
     ] = await Promise.all([
       readJson<PaginatedResponse<MailAccount>>(
         `/api/mail-accounts?page=${accountsPage}&limit=${accountsLimit}`,
@@ -133,41 +130,43 @@ export function useMailAccountsDashboard() {
         `/api/mail-accounts?resource=whatsapp-accounts&page=${whatsAppPage}&limit=${whatsAppLimit}`,
         emptyPage(whatsAppLimit)
       ),
-      readJson<PaginatedResponse<WarmupRecipient>>(
-        `/api/mail-accounts?resource=warmup-recipients&page=${recipientPage}&limit=${recipientLimit}`,
-        emptyPage(recipientLimit)
-      ),
-      readJson<WarmupOverview | null>('/api/mail-accounts?resource=warmup-overview', null),
-      readJson<PaginatedResponse<WarmupLog>>(
-        `/api/mail-accounts?resource=warmup-logs&page=${warmupLogPage}&limit=${warmupLogLimit}`,
-        emptyPage(warmupLogLimit)
-      ),
     ])
 
     setAccountsData(accounts)
     setWhatsAppData(whatsappAccounts)
-    setRecipientData(warmupRecipients)
-    setWarmupOverview(overview)
-    setWarmupLogData(warmupLogs)
 
     if (!background) setLoading(false)
-  }, [accountsLimit, accountsPage, recipientLimit, recipientPage, warmupLogLimit, warmupLogPage, whatsAppLimit, whatsAppPage])
-
-  const loadDomainDiagnostics = useCallback(async () => {
-    const diagnostics = await fetchDomainDiagnostics()
-    setDomainDiagnostics(Array.isArray(diagnostics) ? diagnostics : [])
-  }, [])
+  }, [accountsLimit, accountsPage, whatsAppLimit, whatsAppPage])
 
   useEffect(() => {
     void loadAll()
-    void loadDomainDiagnostics()
-  }, [loadAll, loadDomainDiagnostics])
+  }, [loadAll])
 
   useEffect(() => {
     setPendingDailyLimits((prev) => {
       const next: Record<string, string> = {}
       for (const account of accountsData.items) {
         next[account.id] = prev[account.id] ?? String(account.dailyLimit)
+      }
+      return next
+    })
+  }, [accountsData.items])
+
+  useEffect(() => {
+    setPendingWarmupLimits((prev) => {
+      const next: Record<string, string> = {}
+      for (const account of accountsData.items) {
+        next[account.id] = prev[account.id] ?? String(account.warmupDailyLimit)
+      }
+      return next
+    })
+  }, [accountsData.items])
+
+  useEffect(() => {
+    setPendingTrackingDomains((prev) => {
+      const next: Record<string, string> = {}
+      for (const account of accountsData.items) {
+        next[account.id] = prev[account.id] ?? (account.trackingDomain || '')
       }
       return next
     })
@@ -182,9 +181,8 @@ export function useMailAccountsDashboard() {
     }
     if (successMessage) showToast('success', successMessage)
     void loadAll(true)
-    void loadDomainDiagnostics()
     return true
-  }, [loadAll, loadDomainDiagnostics, showToast])
+  }, [loadAll, showToast])
 
   const handleToggleMailActive = useCallback(async (id: string, current: boolean, warmupStatus: MailAccount['warmupStatus']) => {
     const account = accountsData.items.find((item) => item.id === id)
@@ -212,6 +210,27 @@ export function useMailAccountsDashboard() {
     const dailyLimit = Math.max(1, Number(rawValue || 1))
     await handlePatchMailAccount({ id, dailyLimit }, 'Daily send limit updated')
   }, [handlePatchMailAccount, pendingDailyLimits])
+
+  const handleUpdateMailWarmupLimit = useCallback(async (id: string) => {
+    const rawValue = pendingWarmupLimits[id]
+    const warmupDailyLimit = Math.max(1, Number(rawValue || 1))
+    await handlePatchMailAccount({ id, warmupDailyLimit }, 'Warmup limit updated')
+  }, [handlePatchMailAccount, pendingWarmupLimits])
+
+  const handleWarmupProviderPreferenceChange = useCallback(async (
+    id: string,
+    warmupProviderPreference: 'random' | 'gmail' | 'zoho'
+  ) => {
+    await handlePatchMailAccount(
+      { id, warmupProviderPreference },
+      `Warmup partner mode updated to ${warmupProviderPreference}`
+    )
+  }, [handlePatchMailAccount])
+
+  const handleUpdateTrackingDomain = useCallback(async (id: string) => {
+    const trackingDomain = pendingTrackingDomains[id]?.trim() || null
+    await handlePatchMailAccount({ id, trackingDomain }, 'Tracking domain updated')
+  }, [handlePatchMailAccount, pendingTrackingDomains])
 
   const handleZohoImapToggle = useCallback(async (id: string, current: boolean) => {
     await handlePatchMailAccount({ id, zohoImapEnabled: !current }, `Zoho IMAP turned ${current ? 'off' : 'on'}`)
@@ -350,8 +369,7 @@ export function useMailAccountsDashboard() {
     await deleteMailAccount(id)
     showToast('success', `${email} removed`)
     void loadAll(true)
-    void loadDomainDiagnostics()
-  }, [loadAll, loadDomainDiagnostics, showToast])
+  }, [loadAll, showToast])
 
   const handleCreateWhatsapp = useCallback(async () => {
     setWaSaving(true)
@@ -382,8 +400,7 @@ export function useMailAccountsDashboard() {
       return
     }
     void loadAll(true)
-    void loadDomainDiagnostics()
-  }, [loadAll, loadDomainDiagnostics, showToast])
+  }, [loadAll, showToast])
 
   const handleUpdateWhatsappLimit = useCallback(async (id: string, dailyLimit: number) => {
     const res = await patchWhatsappAccount({ id, dailyLimit })
@@ -471,6 +488,10 @@ export function useMailAccountsDashboard() {
     toast,
     pendingDailyLimits,
     setPendingDailyLimits,
+    pendingWarmupLimits,
+    setPendingWarmupLimits,
+    pendingTrackingDomains,
+    setPendingTrackingDomains,
     waForm,
     setWaForm,
     waSaving,
@@ -485,6 +506,9 @@ export function useMailAccountsDashboard() {
     handleWarmupStatusChange,
     handleWarmupAutoToggle,
     handleUpdateMailDailyLimit,
+    handleUpdateMailWarmupLimit,
+    handleWarmupProviderPreferenceChange,
+    handleUpdateTrackingDomain,
     handleZohoImapToggle,
     handleUseZohoApi,
     handleOpenMailboxFolder,

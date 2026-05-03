@@ -7,8 +7,28 @@ import { mailboxSyncQueue } from '~/queues/mailboxSyncQueue'
 import { sendViaGmail, sendViaZoho } from '~/lib/mailSenders'
 import { releaseMailAccountReservation } from '~/lib/apiDispatchPool'
 
-function appendTrackingPixel(html: string, trackingToken: string): string {
-  const baseUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'
+function normalizeTrackingBaseUrl(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/\/+$/, '')
+  }
+  return `https://${trimmed.replace(/\/+$/, '')}`
+}
+
+function resolveTrackingBaseUrl(account: { type: string; trackingDomain: string | null }): string {
+  const globalBaseUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000'
+  if (account.type === 'zoho') {
+    const customBaseUrl = normalizeTrackingBaseUrl(account.trackingDomain)
+    if (customBaseUrl) {
+      return customBaseUrl
+    }
+  }
+  return globalBaseUrl.replace(/\/+$/, '')
+}
+
+function appendTrackingPixel(html: string, trackingToken: string, account: { type: string; trackingDomain: string | null }): string {
+  const baseUrl = resolveTrackingBaseUrl(account)
   const pixelUrl = `${baseUrl}/api/track/open?token=${encodeURIComponent(trackingToken)}`
   const pixel = `<img src="${pixelUrl}" alt="" width="1" height="1" style="display:none!important;opacity:0;border:0;outline:none;text-decoration:none;" />`
   const trimmed = html.trim()
@@ -68,12 +88,12 @@ function classifyMailFailure(error: unknown): 'failed' | 'bounced' {
 
 async function processMailJob(job: Job<MailJobData>) {
   const { campaignId, csvRowId, mailAccountId, apiDispatchRequestId, reservationKey, toEmail, subject, body, trackingToken } = job.data
-  const renderedBody = appendTrackingPixel(body, trackingToken)
 
   console.log(`[MailProcessor] Sending to ${toEmail} via account ${mailAccountId}`)
 
   const account = await prisma.mailAccount.findUnique({ where: { id: mailAccountId } })
   if (!account) throw new Error(`Mail account ${mailAccountId} not found`)
+  const renderedBody = appendTrackingPixel(body, trackingToken, account)
   if (!account.isActive || account.warmupStatus !== 'WARMED') {
     throw new Error(`Mail account ${mailAccountId} is not eligible for sending (requires ACTIVE + WARMED).`)
   }

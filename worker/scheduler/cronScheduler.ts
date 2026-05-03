@@ -374,7 +374,7 @@ async function runDailyReset() {
     const warmupSettings = await loadWarmupSettings()
     const [mailResetResult, waResetResult] = await Promise.all([
       prisma.mailAccount.updateMany({
-        data: { sentToday: 0, lastResetAt: new Date() },
+        data: { sentToday: 0, warmupSentToday: 0, lastResetAt: new Date() },
       }),
       prisma.whatsAppAccount.updateMany({
         data: { sentToday: 0, lastResetAt: new Date() },
@@ -528,7 +528,7 @@ async function pollWarmupAccounts() {
 
     const warmingAccounts = await prisma.mailAccount.findMany({
       where: {
-        warmupStatus: 'WARMING',
+        warmupStatus: { in: ['WARMING', 'WARMED'] },
         warmupAutoEnabled: true,
       },
       select: { id: true },

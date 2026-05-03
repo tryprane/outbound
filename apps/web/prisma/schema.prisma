@@ -55,6 +55,7 @@ model MailAccount {
   type         String   // "zoho" | "gmail"
   email        String   @unique
   displayName  String
+  trackingDomain String?
   // Zoho SMTP fields
   smtpHost     String?
   smtpPort     Int?
@@ -84,6 +85,8 @@ model MailAccount {
   // Limits
   dailyLimit   Int      @default(40)
   sentToday    Int      @default(0)
+  warmupDailyLimit Int  @default(40)
+  warmupSentToday Int   @default(0)
   lastResetAt  DateTime @default(now())
   lastMailSentAt DateTime?
   apiReservationKey String?
@@ -96,6 +99,7 @@ model MailAccount {
   warmupPausedAt DateTime?
   recommendedDailyLimit Int @default(5)
   warmupAutoEnabled Boolean @default(true)
+  warmupProviderPreference String @default("random") // random|gmail|zoho
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

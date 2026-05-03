@@ -45,6 +45,14 @@ interface ReplyModalState {
   replies: ReplyMessage[]
 }
 
+interface MessageModalState {
+  sentMailId: string
+  recipient: string
+  subject: string
+  sentAt: string
+  html: string | null
+}
+
 type SentFilterAccount = {
   id: string
   email: string
@@ -96,6 +104,9 @@ export default function GlobalSentMailPage() {
   const [replyModal, setReplyModal] = useState<ReplyModalState | null>(null)
   const [replyLoadingId, setReplyLoadingId] = useState<string | null>(null)
   const [replyError, setReplyError] = useState<string | null>(null)
+  const [messageModal, setMessageModal] = useState<MessageModalState | null>(null)
+  const [messageLoadingId, setMessageLoadingId] = useState<string | null>(null)
+  const [messageError, setMessageError] = useState<string | null>(null)
   const [accountProgressExpanded, setAccountProgressExpanded] = useState(false)
   const [accountProgressLoading, setAccountProgressLoading] = useState(false)
   const [accountProgressLoaded, setAccountProgressLoaded] = useState(false)
@@ -271,18 +282,45 @@ export default function GlobalSentMailPage() {
     }
   }
 
+  const handleOpenMessageModal = async (log: MailLog) => {
+    setMessageError(null)
+    setMessageLoadingId(log.id)
+
+    try {
+      const res = await fetch(`/api/sent/${log.id}/message`)
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to load sent message')
+      }
+
+      setMessageModal({
+        sentMailId: log.id,
+        recipient: data.toEmail || log.toEmail,
+        subject: (data.subject || log.subject).replace(/^Subject:\s*/i, ''),
+        sentAt: data.sentAt || log.sentAt,
+        html: data.html || null,
+      })
+    } catch (error) {
+      setMessageError(error instanceof Error ? error.message : 'Failed to load sent message')
+    } finally {
+      setMessageLoadingId(null)
+    }
+  }
+
   useEffect(() => {
-    if (!replyModal) return
+    if (!replyModal && !messageModal) return
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setReplyModal(null)
+        setMessageModal(null)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [replyModal])
+  }, [messageModal, replyModal])
 
   return (
     <div className="animate-fade-in">
@@ -644,6 +682,14 @@ export default function GlobalSentMailPage() {
                             Clearing the log does not remove suppression.
                           </div>
                         ) : null}
+                        <button
+                          className="btn-ghost"
+                          style={{ padding: '6px 10px', fontSize: '12px' }}
+                          onClick={() => void handleOpenMessageModal(log)}
+                          disabled={messageLoadingId === log.id}
+                        >
+                          {messageLoadingId === log.id ? 'Loading message...' : 'View message'}
+                        </button>
                         <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => void handleLogAction(log.id, 'mark-complaint')}>
                           Mark complaint
                         </button>
@@ -686,6 +732,12 @@ export default function GlobalSentMailPage() {
       {replyError ? (
         <div className="glass-card" style={{ marginTop: '16px', padding: '14px', border: '1px solid rgba(239, 68, 68, 0.2)', color: 'var(--error)' }}>
           {replyError}
+        </div>
+      ) : null}
+
+      {messageError ? (
+        <div className="glass-card" style={{ marginTop: '16px', padding: '14px', border: '1px solid rgba(239, 68, 68, 0.2)', color: 'var(--error)' }}>
+          {messageError}
         </div>
       ) : null}
 
@@ -787,6 +839,80 @@ export default function GlobalSentMailPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      , document.body) : null}
+
+      {isClient && messageModal ? createPortal(
+        <div
+          onClick={() => setMessageModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            zIndex: 90,
+          }}
+        >
+          <div
+            className="glass-card"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: 'min(980px, 100%)',
+              maxHeight: 'min(88vh, 1040px)',
+              overflowY: 'auto',
+              padding: '24px',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '18px' }}>
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+                  Sent message
+                </div>
+                <h2 style={{ marginTop: '6px', fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {messageModal.subject || '(no subject)'}
+                </h2>
+                <div style={{ marginTop: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  To {messageModal.recipient} | Sent {formatDate(messageModal.sentAt)}
+                </div>
+              </div>
+              <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setMessageModal(null)}>
+                Close
+              </button>
+            </div>
+
+            <div
+              style={{
+                overflow: 'hidden',
+                borderRadius: '16px',
+                border: '1px solid var(--border)',
+                background: 'rgba(255,255,255,0.9)',
+              }}
+            >
+              {messageModal.html ? (
+                <iframe
+                  title={messageModal.subject || 'Sent message'}
+                  srcDoc={messageModal.html}
+                  sandbox=""
+                  style={{
+                    width: '100%',
+                    minHeight: '70vh',
+                    border: '0',
+                    background: 'white',
+                  }}
+                />
+              ) : (
+                <div style={{ padding: '18px', color: 'var(--text-muted)' }}>
+                  No original message body is available for this sent log.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       , document.body) : null}

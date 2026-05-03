@@ -71,11 +71,27 @@ function getFirstName(value?: string | null) {
 
 const DEFAULT_REPLY_PERCENT = 70
 const SPAM_RESCUE_REPLY_PERCENT = 90
-const GEMINI_REPLY_PROBABILITY = 0.75
+const WARMUP_REPLY_LLM_PROBABILITY = Math.min(
+  1,
+  Math.max(0, Number(process.env.WARMUP_REPLY_LLM_PROBABILITY ?? 0.85))
+)
 
 function shouldReply(messageId: string, boostedForSpamRescue = false) {
   const threshold = boostedForSpamRescue ? SPAM_RESCUE_REPLY_PERCENT : DEFAULT_REPLY_PERCENT
   return hashToPercent(messageId) < threshold
+}
+
+function canRunWarmupInteraction(account: {
+  warmupStatus: string
+  warmupAutoEnabled: boolean
+  warmupSentToday: number
+  warmupDailyLimit: number
+  recommendedDailyLimit: number
+}) {
+  if (!account.warmupAutoEnabled) return false
+  if (!['WARMING', 'WARMED'].includes(account.warmupStatus)) return false
+  const effectiveLimit = Math.min(account.recommendedDailyLimit, account.warmupDailyLimit)
+  return account.warmupSentToday < effectiveLimit
 }
 
 async function queueNextStage(mailboxMessageId: string, stage: NonNullable<MailboxInteractionJobData['stage']>, delayMs: number) {
@@ -96,6 +112,7 @@ async function processMailboxInteractionJob(job: Job<MailboxInteractionJobData>)
   })
   if (!message) return
   if (!message.isWarmup || message.direction !== 'inbound') return
+  if (!canRunWarmupInteraction(message.mailAccount)) return
 
   const stage = job.data.stage || 'open'
   const provider = getMailboxProvider(message.mailAccount)
@@ -131,6 +148,7 @@ async function processMailboxInteractionJob(job: Job<MailboxInteractionJobData>)
     include: { mailAccount: true },
   })
   if (!refreshed) return
+  if (!canRunWarmupInteraction(refreshed.mailAccount)) return
 
   if (stage === 'open') {
     if (refreshed.isSpam && !refreshed.rescuedAt) {
@@ -166,7 +184,7 @@ async function processMailboxInteractionJob(job: Job<MailboxInteractionJobData>)
   if (!(warmupCounterpart || siblingMailbox)) return
 
   // Try Gemini first for a contextual, threaded reply; fall back to template
-  const geminiMail = Math.random() < GEMINI_REPLY_PROBABILITY
+  const geminiMail = Math.random() < WARMUP_REPLY_LLM_PROBABILITY
     ? await generateWarmupMailWithGemini({
         senderName: refreshed.mailAccount.displayName,
         recipientName: getFirstName(counterpart),
@@ -195,7 +213,7 @@ async function processMailboxInteractionJob(job: Job<MailboxInteractionJobData>)
     prisma.mailAccount.update({
       where: { id: refreshed.mailAccount.id },
       data: {
-        sentToday: { increment: 1 },
+        warmupSentToday: { increment: 1 },
         lastMailSentAt: new Date(),
       },
     }),

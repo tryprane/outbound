@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { GmailImapSmtpForm } from '@/components/mail-accounts/GmailImapSmtpForm'
 import { GmailOAuthButton } from '@/components/mail-accounts/GmailOAuthButton'
 import { ZohoOAuthButton } from '@/components/mail-accounts/ZohoOAuthButton'
 import {
@@ -203,9 +204,16 @@ export function AccountsView(props: {
   setWhatsAppLimit: (limit: number) => void
   pendingDailyLimits: Record<string, string>
   setPendingDailyLimits: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  pendingWarmupLimits: Record<string, string>
+  setPendingWarmupLimits: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  pendingTrackingDomains: Record<string, string>
+  setPendingTrackingDomains: React.Dispatch<React.SetStateAction<Record<string, string>>>
   handleWarmupStatusChange: (id: string, status: MailAccount['warmupStatus']) => void
   handleWarmupAutoToggle: (id: string, current: boolean) => void
   handleUpdateMailDailyLimit: (id: string) => void
+  handleUpdateMailWarmupLimit: (id: string) => void
+  handleWarmupProviderPreferenceChange: (id: string, preference: MailAccount['warmupProviderPreference']) => void
+  handleUpdateTrackingDomain: (id: string) => void
   handleReconnectGmail: () => void
   handleReconnectZohoApi: () => void
   handleUseZohoApi: (id: string) => void
@@ -232,6 +240,8 @@ export function AccountsView(props: {
   handleReconnectWhatsapp: (id: string) => void
   handleDeleteWhatsapp: (id: string, name: string) => void
 }) {
+  const [expandedAccountId, setExpandedAccountId] = useState<string | null>(null)
+
   return (
     <div style={{ display: 'grid', gap: '18px' }}>
       <div style={panelStyle}>
@@ -242,9 +252,51 @@ export function AccountsView(props: {
           <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No email account connected.</div>
         ) : (
           <div style={{ display: 'grid', gap: '12px' }}>
-            {props.accounts.map((account) => (
+            {props.accountsPagination.total > 0 ? (
+              <PaginationControls
+                page={props.accountsPagination.page}
+                pages={props.accountsPagination.pages}
+                total={props.accountsPagination.total}
+                limit={props.accountsPagination.limit}
+                onPageChange={props.setAccountsPage}
+                onLimitChange={props.setAccountsLimit}
+                label="mailboxes"
+              />
+            ) : null}
+            {props.accounts.map((account) => {
+              const isExpanded = expandedAccountId === account.id
+              return (
               <div key={account.id} style={{ ...surfaceCardStyle, padding: '18px' }}>
-                <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]" style={{ gap: '18px' }}>
+                <button
+                  type="button"
+                  onClick={() => setExpandedAccountId(isExpanded ? null : account.id)}
+                  style={{
+                    width: '100%',
+                    border: 'none',
+                    background: 'transparent',
+                    padding: 0,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0, flex: '1 1 360px' }}>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>{account.email}</div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                        <span className="badge" style={{ background: 'rgba(255,255,255,0.72)', color: 'var(--text-secondary)' }}>{account.type.toUpperCase()}</span>
+                        <span className="badge" style={{ background: 'rgba(99,102,241,0.08)', color: 'var(--text-primary)' }}>Send {account.sentToday}/{account.dailyLimit}</span>
+                        <span className="badge" style={{ background: 'rgba(34,197,94,0.08)', color: 'var(--text-primary)' }}>Warmup {account.warmupSentToday}/{account.warmupDailyLimit}</span>
+                        <span className="badge" style={{ background: 'rgba(255,255,255,0.72)', color: 'var(--text-secondary)' }}>Sync {account.mailboxSyncStatus}</span>
+                        <span className="badge" style={{ background: 'rgba(255,255,255,0.72)', color: 'var(--text-secondary)' }}>Health {account.mailboxHealthScore}/100</span>
+                      </div>
+                    </div>
+                    <span className="badge" style={{ background: 'rgba(255,255,255,0.72)', color: 'var(--text-primary)', minWidth: '96px', justifyContent: 'center' }}>
+                      {isExpanded ? 'Hide controls' : 'Show controls'}
+                    </span>
+                  </div>
+                </button>
+                {isExpanded ? (
+                <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]" style={{ gap: '18px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(60, 45, 25, 0.08)' }}>
                   <div>
                     <AccountHeader
                       title={account.email}
@@ -254,7 +306,8 @@ export function AccountsView(props: {
                     />
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '10px', marginTop: '14px' }}>
                       <MetricPair label="Warmup 7d" value={`${account.warmupStats7d.successRate}% (${account.warmupStats7d.sent}/${account.warmupStats7d.total})`} />
-                      <MetricPair label="Daily pacing" value={`${account.sentToday}/${account.dailyLimit} with target ${account.recommendedDailyLimit}`} />
+                      <MetricPair label="Campaign sending" value={`${account.sentToday}/${account.dailyLimit}`} />
+                      <MetricPair label="Warmup sending" value={`${account.warmupSentToday}/${account.warmupDailyLimit} with target ${account.recommendedDailyLimit}`} />
                       <MetricPair label="Mailbox sync" value={<span><StatusBadge status={account.mailboxSyncStatus} /></span>} />
                       <MetricPair label="Mailbox health" value={`${account.mailboxHealthScore}/100 (${account.mailboxHealthStatus})`} tone={account.mailboxHealthScore > 65 ? 'var(--success)' : account.mailboxHealthScore > 0 ? 'var(--warning)' : 'var(--text-primary)'} />
                     </div>
@@ -268,6 +321,13 @@ export function AccountsView(props: {
                         Zoho setup: {account.zohoSetupStatus === 'complete' ? 'SMTP + OAuth connected' : account.zohoSetupStatus === 'pending_oauth' ? 'SMTP connected, OAuth pending' : account.zohoSetupStatus === 'pending_smtp' ? 'OAuth connected, SMTP pending' : 'SMTP + OAuth pending'}
                         {' | '}Active inbox mode: {account.mailboxConnectionMethod === 'api' ? 'Zoho API' : 'Zoho IMAP'}
                         {account.mailboxConnectionMethod === 'imap' ? ` | IMAP ${account.zohoImapEnabled === false ? 'OFF' : 'ON'}` : ''}
+                        {account.trackingDomain ? ` | Tracker ${account.trackingDomain}` : ''}
+                      </div>
+                    ) : null}
+                    {account.type === 'gmail' ? (
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                        Gmail connection: {account.mailboxConnectionMethod === 'imap' ? 'IMAP + SMTP app password' : 'Google OAuth'}
+                        {account.trackingDomain ? ` | Tracker ${account.trackingDomain}` : ' | Tracker global'}
                       </div>
                     ) : null}
                     {account.type === 'zoho' && account.connectionReady === false ? (
@@ -286,8 +346,8 @@ export function AccountsView(props: {
                       </div>
                     ) : null}
                     <ProgressBar
-                      value={account.sentToday}
-                      max={Math.max(account.recommendedDailyLimit, account.dailyLimit)}
+                      value={account.warmupSentToday}
+                      max={Math.max(account.recommendedDailyLimit, account.warmupDailyLimit)}
                       color={account.warmupStatus === 'WARMED' ? 'var(--success)' : 'var(--accent)'}
                     />
                   </div>
@@ -301,18 +361,54 @@ export function AccountsView(props: {
                         value={props.pendingDailyLimits[account.id] ?? String(account.dailyLimit)}
                         onChange={(e) => props.setPendingDailyLimits((prev) => ({ ...prev, [account.id]: e.target.value }))}
                       />
-                      <button className="btn-ghost" onClick={() => props.handleUpdateMailDailyLimit(account.id)}>Save limit</button>
+                      <button className="btn-ghost" onClick={() => props.handleUpdateMailDailyLimit(account.id)}>Save send</button>
                     </div>
+                    <div className="grid gap-2 sm:grid-cols-[92px_minmax(0,1fr)]">
+                      <input
+                        className="input-base"
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={props.pendingWarmupLimits[account.id] ?? String(account.warmupDailyLimit)}
+                        onChange={(e) => props.setPendingWarmupLimits((prev) => ({ ...prev, [account.id]: e.target.value }))}
+                      />
+                      <button className="btn-ghost" onClick={() => props.handleUpdateMailWarmupLimit(account.id)}>Save warmup</button>
+                    </div>
+                    {account.type === 'zoho' ? (
+                      <div className="grid gap-2 sm:grid-cols-[92px_minmax(0,1fr)]">
+                        <input
+                          className="input-base"
+                          type="text"
+                          placeholder="track.example.com"
+                          value={props.pendingTrackingDomains[account.id] ?? ''}
+                          onChange={(e) => props.setPendingTrackingDomains((prev) => ({ ...prev, [account.id]: e.target.value }))}
+                        />
+                        <button className="btn-ghost" onClick={() => props.handleUpdateTrackingDomain(account.id)}>Save track</button>
+                      </div>
+                    ) : null}
                     <select className="input-base" value={account.warmupStatus} onChange={(e) => props.handleWarmupStatusChange(account.id, e.target.value as MailAccount['warmupStatus'])}>
                       <option value="COLD">COLD</option>
                       <option value="WARMING">WARMING</option>
                       <option value="PAUSED">PAUSED</option>
                       <option value="WARMED">WARMED</option>
                     </select>
+                    <select
+                      className="input-base"
+                      value={account.warmupProviderPreference}
+                      onChange={(e) => props.handleWarmupProviderPreferenceChange(account.id, e.target.value as MailAccount['warmupProviderPreference'])}
+                    >
+                      <option value="random">Warmup partner: Random</option>
+                      <option value="gmail">Warmup partner: Gmail</option>
+                      <option value="zoho">Warmup partner: Zoho</option>
+                    </select>
                     <ActionGrid>
-                      <button className="btn-ghost" onClick={() => props.handleWarmupAutoToggle(account.id, account.warmupAutoEnabled)}>Auto {account.warmupAutoEnabled ? 'ON' : 'OFF'}</button>
+                      <button className="btn-ghost" onClick={() => props.handleWarmupAutoToggle(account.id, account.warmupAutoEnabled)}>
+                        Warmup {account.warmupAutoEnabled ? 'ON' : 'OFF'}
+                      </button>
                       {account.type === 'gmail' ? (
-                        <button className="btn-ghost" onClick={props.handleReconnectGmail}>Reconnect Gmail</button>
+                        account.mailboxConnectionMethod !== 'imap' ? (
+                        <button className="btn-ghost" onClick={props.handleReconnectGmail}>Reconnect Gmail OAuth</button>
+                        ) : null
                       ) : (
                         <>
                           {!account.zohoApiConnected ? (
@@ -332,7 +428,13 @@ export function AccountsView(props: {
                       <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'INBOX')} disabled={!account.mailboxSyncAvailable}>Open inbox</button>
                       <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'SPAM')} disabled={!account.mailboxSyncAvailable}>Open spam</button>
                       <button className="btn-ghost" onClick={() => props.handleOpenMailboxFolder(account.id, 'SENT')} disabled={!account.mailboxSyncAvailable}>Open sent</button>
-                      <button className="btn-ghost" onClick={() => props.handleRunWarmupNow(account.id)} disabled={account.warmupStatus !== 'WARMING' || !account.warmupAutoEnabled}>Run warmup</button>
+                      <button
+                        className="btn-ghost"
+                        onClick={() => props.handleRunWarmupNow(account.id)}
+                        disabled={!['WARMING', 'WARMED'].includes(account.warmupStatus) || !account.warmupAutoEnabled}
+                      >
+                        Run warmup
+                      </button>
                       <button className="btn-ghost" onClick={() => props.handleRunMailboxSyncNow(account.id)} disabled={!account.mailboxSyncAvailable}>Sync mailbox</button>
                       <button className="btn-ghost" onClick={() => props.handleToggleMailActive(account.id, account.isActive, account.warmupStatus)}>
                         {account.isActive ? 'Disable' : 'Enable'}
@@ -341,6 +443,7 @@ export function AccountsView(props: {
                     </ActionGrid>
                   </div>
                 </div>
+                ) : null}
                 {props.activeMailboxAccountId === account.id ? (
                   <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -403,7 +506,8 @@ export function AccountsView(props: {
                   </div>
                 ) : null}
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
         {props.accountsPagination.total > 0 ? (
@@ -875,8 +979,30 @@ export function AddZohoView({ onAdded }: { onAdded: () => void }) {
   )
 }
 
-export function AddGmailView() {
-  return <div style={panelStyle}><GmailOAuthButton /></div>
+export function AddGmailView({ onAdded }: { onAdded?: () => void }) {
+  return (
+    <div style={{ display: 'grid', gap: '18px' }}>
+      <div style={panelStyle}>
+        <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
+          Connect Gmail with Google OAuth
+        </div>
+        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: '16px' }}>
+          Best when you want the standard Google-connected flow. This uses Gmail API for sending, reply actions, spam rescue, and inbox sync.
+        </div>
+        <GmailOAuthButton />
+      </div>
+
+      <div style={panelStyle}>
+        <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
+          Connect Gmail with IMAP + SMTP app password
+        </div>
+        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: '16px' }}>
+          Use this when you want to avoid repeated OAuth reconnects. If this Gmail already exists in the dashboard through OAuth, saving this form upgrades that same mailbox record to the IMAP + SMTP path.
+        </div>
+        <GmailImapSmtpForm onAccountAdded={onAdded} />
+      </div>
+    </div>
+  )
 }
 
 export function AddWhatsappView(props: {

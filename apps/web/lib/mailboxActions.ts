@@ -3,6 +3,12 @@ import type { MailAccount } from '@prisma/client'
 import { decrypt } from '@/lib/encryption'
 import { getGmailClient } from '@/lib/mailer/gmail'
 import {
+  hasGmailImapSmtpAccess,
+  markGmailImapMessageAsRead,
+  rescueGmailImapMessageToInbox,
+  sendGmailImapReply,
+} from '@/lib/gmailImapMailbox'
+import {
   getZohoFolders,
   mapZohoFolderKind,
   markZohoMessagesAsNotSpam,
@@ -17,6 +23,8 @@ type MailboxMessageRef = {
   fromEmail: string | null
   toEmail: string | null
   subject: string | null
+  messageIdHeader?: string | null
+  referencesHeader?: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -26,12 +34,16 @@ function buildReplyHeaders(account: MailAccount, ref: MailboxMessageRef, reply: 
     throw new Error(`Reply target missing for ${account.email}`)
   }
 
+  const references = [ref.referencesHeader, ref.messageIdHeader].filter(Boolean).join(' ').trim()
+
   return {
     to,
     raw: [
       `From: "${account.displayName}" <${account.email}>`,
       `To: ${to}`,
       `Subject: ${reply.subject}`,
+      ...(ref.messageIdHeader ? [`In-Reply-To: ${ref.messageIdHeader}`] : []),
+      ...(references ? [`References: ${references}`] : []),
       'MIME-Version: 1.0',
       'Content-Type: text/html; charset=UTF-8',
       '',
@@ -42,6 +54,11 @@ function buildReplyHeaders(account: MailAccount, ref: MailboxMessageRef, reply: 
 
 export async function markMailboxMessageAsRead(account: MailAccount, message: MailboxMessageRef) {
   if (account.type === 'gmail') {
+    if (hasGmailImapSmtpAccess(account)) {
+      await markGmailImapMessageAsRead(account, message)
+      return
+    }
+
     const { client } = await getGmailClient(account.id)
     const gmail = google.gmail({ version: 'v1', auth: client })
     await gmail.users.messages.modify({
@@ -62,13 +79,18 @@ export async function markMailboxMessageAsRead(account: MailAccount, message: Ma
 
 export async function rescueMailboxMessageToInbox(account: MailAccount, message: MailboxMessageRef) {
   if (account.type === 'gmail') {
+    if (hasGmailImapSmtpAccess(account)) {
+      await rescueGmailImapMessageToInbox(account, message)
+      return
+    }
+
     const { client } = await getGmailClient(account.id)
     const gmail = google.gmail({ version: 'v1', auth: client })
     await gmail.users.messages.modify({
       userId: 'me',
       id: message.providerMessageId,
       requestBody: {
-        addLabelIds: ['INBOX'],
+        addLabelIds: ['INBOX', 'IMPORTANT'],
         removeLabelIds: ['SPAM', 'UNREAD'],
       },
     })
@@ -99,6 +121,11 @@ export async function replyToMailboxMessage(
   reply: { subject: string; html: string }
 ) {
   if (account.type === 'gmail') {
+    if (hasGmailImapSmtpAccess(account)) {
+      await sendGmailImapReply(account, message, reply)
+      return
+    }
+
     const { client } = await getGmailClient(account.id)
     const gmail = google.gmail({ version: 'v1', auth: client })
     const built = buildReplyHeaders(account, message, reply)

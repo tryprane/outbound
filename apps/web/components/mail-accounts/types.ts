@@ -13,13 +13,17 @@ export interface MailAccount {
   type: 'zoho' | 'gmail'
   email: string
   displayName: string
+  trackingDomain: string | null
   dailyLimit: number
   sentToday: number
+  warmupDailyLimit: number
+  warmupSentToday: number
   isActive: boolean
   warmupStatus: 'COLD' | 'WARMING' | 'WARMED' | 'PAUSED'
   warmupStage: number
   recommendedDailyLimit: number
   warmupAutoEnabled: boolean
+  warmupProviderPreference: 'random' | 'gmail' | 'zoho'
   warmupStartedAt: string | null
   warmupCompletedAt: string | null
   warmupPausedAt: string | null

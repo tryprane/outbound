@@ -73,6 +73,11 @@ function inferRegionFromBaseUrl(url: string) {
   return match?.[1] || 'in'
 }
 
+function deriveTrackingDomain(email: string) {
+  const domain = email.split('@')[1]?.trim().toLowerCase()
+  return domain ? `track.${domain}` : null
+}
+
 function normalizeMailText(value?: string | null) {
   return (value || '')
     .replace(/&quot;/g, '"')
@@ -263,6 +268,7 @@ export async function exchangeZohoCodeWithBaseUrl(code: string, baseUrl?: string
       type: 'zoho',
       email,
       displayName,
+      trackingDomain: deriveTrackingDomain(email),
       zohoAccountId: primary.accountId,
       zohoRegion: tempAccount.zohoRegion,
       zohoAccessToken: encryptedAccessToken,
@@ -275,15 +281,18 @@ export async function exchangeZohoCodeWithBaseUrl(code: string, baseUrl?: string
       mailboxSyncError: null,
       mailboxHealthStatus: 'cold',
       dailyLimit: 40,
+      warmupDailyLimit: 40,
       warmupStatus: 'WARMING',
       warmupStage: 0,
       warmupStartedAt: new Date(),
       recommendedDailyLimit: 5,
       warmupAutoEnabled: true,
+      warmupProviderPreference: 'random',
       isActive: false,
     },
     update: {
       displayName,
+      trackingDomain: deriveTrackingDomain(email),
       zohoAccountId: primary.accountId,
       zohoRegion: tempAccount.zohoRegion,
       zohoAccessToken: encryptedAccessToken,
@@ -387,6 +396,22 @@ export async function sendZohoReply(
       action: 'reply',
     }),
   })
+}
+
+export async function getZohoMessageContent(
+  account: MailAccount,
+  messageId: string,
+  folderId: string,
+  includeBlockContent = true
+) {
+  const search = new URLSearchParams({
+    includeBlockContent: includeBlockContent ? 'true' : 'false',
+  })
+
+  return zohoApiRequest<{ messageId?: string | number; content?: string | null }>(
+    account,
+    `/accounts/${account.zohoAccountId}/folders/${folderId}/messages/${messageId}/content?${search.toString()}`
+  )
 }
 
 export function mapZohoFolderKind(folder: ZohoFolderPayload) {

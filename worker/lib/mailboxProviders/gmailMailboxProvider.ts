@@ -4,6 +4,13 @@ import { decrypt, encrypt } from '~/lib/encryption'
 import { prisma } from '~/lib/prisma'
 import type { MailboxFolder, MailboxMessageRecord, MailboxProvider, MailboxStoredMessageRef } from '~/lib/mailboxProviders/types'
 import { extractEmailAddress, safeDate, uniqByProviderMessageId } from '~/lib/mailboxProviders/utils'
+import {
+  hasGmailImapSmtpAccess,
+  listRecentGmailImapMessages,
+  markGmailImapMessageAsRead,
+  rescueGmailImapMessageToInbox,
+  sendGmailImapReply,
+} from '~/lib/gmailImapMailbox'
 
 type GmailFolderConfig = {
   id: string
@@ -75,10 +82,21 @@ export class GmailMailboxProvider implements MailboxProvider {
   constructor(private readonly account: MailAccount) {}
 
   async listFolders(): Promise<MailboxFolder[]> {
+    if (hasGmailImapSmtpAccess(this.account)) {
+      return [
+        { id: 'gmail-inbox', name: 'Inbox', kind: 'INBOX' },
+        { id: 'gmail-spam', name: 'Spam', kind: 'SPAM' },
+        { id: 'gmail-sent', name: 'Sent', kind: 'SENT' },
+      ]
+    }
     return FOLDERS.map(({ id, name, kind }) => ({ id, name, kind }))
   }
 
   async listRecentMessages(options: { days?: number; limitPerFolder?: number } = {}): Promise<MailboxMessageRecord[]> {
+    if (hasGmailImapSmtpAccess(this.account)) {
+      return listRecentGmailImapMessages(this.account, options)
+    }
+
     const gmail = await createGmailClient(this.account)
     const days = Math.max(1, options.days ?? 7)
     const limitPerFolder = Math.max(1, options.limitPerFolder ?? 25)
@@ -135,6 +153,11 @@ export class GmailMailboxProvider implements MailboxProvider {
   }
 
   async markAsRead(message: MailboxStoredMessageRef): Promise<void> {
+    if (hasGmailImapSmtpAccess(this.account)) {
+      await markGmailImapMessageAsRead(this.account, message)
+      return
+    }
+
     const gmail = await createGmailClient(this.account)
     await gmail.users.messages.modify({
       userId: 'me',
@@ -146,18 +169,28 @@ export class GmailMailboxProvider implements MailboxProvider {
   }
 
   async rescueToInbox(message: MailboxStoredMessageRef): Promise<void> {
+    if (hasGmailImapSmtpAccess(this.account)) {
+      await rescueGmailImapMessageToInbox(this.account, message)
+      return
+    }
+
     const gmail = await createGmailClient(this.account)
     await gmail.users.messages.modify({
       userId: 'me',
       id: message.providerMessageId,
       requestBody: {
-        addLabelIds: ['INBOX'],
+        addLabelIds: ['INBOX', 'IMPORTANT'],
         removeLabelIds: ['SPAM', 'UNREAD'],
       },
     })
   }
 
   async sendReply(message: MailboxStoredMessageRef, reply: { subject: string; html: string }): Promise<void> {
+    if (hasGmailImapSmtpAccess(this.account)) {
+      await sendGmailImapReply(this.account, message, reply)
+      return
+    }
+
     const gmail = await createGmailClient(this.account)
     const to = message.fromEmail || message.toEmail
     if (!to) throw new Error(`Reply target missing for Gmail mailbox ${this.account.email}`)
